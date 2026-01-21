@@ -1,0 +1,6 @@
+node_modules/
+ccp-school/node_modules/
+dist/
+ccp-school/dist/
+.env
+.DS_Store
