@@ -13,7 +13,6 @@ A production-ready React application for a Data Analytics as a Service (DAaaS) p
 - **Icons:** Lucide React
 
 ## 📁 Project Structure
-
 ```
 /src
   /api           # Axios client & API endpoints
