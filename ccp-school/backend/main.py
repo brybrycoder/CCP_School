@@ -38,6 +38,12 @@ _dataset_cache: Optional[pd.DataFrame] = None
 _dataset_lock = Lock()
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for container orchestration"""
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
 class JobRequest(BaseModel):
     dataset_id: str = Field(..., alias="dataset_id")
     analysis_type: str = Field(..., alias="analysis_type")
