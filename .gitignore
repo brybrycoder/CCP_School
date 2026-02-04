@@ -4,3 +4,4 @@ dist/
 ccp-school/dist/
 .env
 .DS_Store
+.playwright-mcp/console-2026-02-04T06-00-01-954Z.log
