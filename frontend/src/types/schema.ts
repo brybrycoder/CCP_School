@@ -42,7 +42,13 @@ export interface Job {
 // Additional types for the Intake Analytics feature
 export type Sex = 'F' | 'M' | 'MF';
 
-export type AnalysisMode = 'trend' | 'comparison';
+export type AnalysisMode = 
+  | 'trend' 
+  | 'comparison' 
+  | 'growth' 
+  | 'gender'
+  | 'gender_distribution' 
+  | 'sector_comparison';
 
 export interface InstitutionGroup {
   name: string;

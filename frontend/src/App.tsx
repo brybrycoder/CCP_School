@@ -45,6 +45,9 @@ const App: React.FC = () => {
     return (
       <BrowserRouter>
         <Routes>
+          {/* Login Route for Dev Mode */}
+          <Route path="/login" element={<Login />} />
+          
           <Route element={<MainLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/analytics/intake" element={<IntakeAnalytics />} />

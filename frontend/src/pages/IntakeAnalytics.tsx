@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Filter,
   TrendingUp,
@@ -6,53 +6,38 @@ import {
   Download,
   RefreshCw,
   Info,
+  ArrowUpRight,
+  ArrowDownRight,
+  Minus,
+  Sparkles,
+  Loader2,
+  AlertCircle,
+  Users,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Table, Column } from '../components/ui';
-import { LineChart, BarChart, LineChartSeries, BarChartSeries } from '../components/charts';
-import { IntakeDataRow, InstitutionKey, Sex, AnalysisMode } from '../types';
+import { 
+  LineChart, 
+  BarChart, 
+  LineChartSeries, 
+  BarChartSeries,
+} from '../components/charts';
+import { InstitutionKey, Sex, AnalysisMode } from '../types';
 import {
   INSTITUTION_GROUPS,
   INSTITUTION_LABELS,
   getInstitutionLabel,
-  isValidNumber,
   generateYearRange,
   formatNumber,
 } from '../utils';
+import { intakeApi, JobResult, DataPoint, ChartSeries } from '../api';
 
-// ============================================================================
-// MOCK DATA - Matches the IntakebyInstitutions dataset structure
-// ============================================================================
-const MOCK_DATA: IntakeDataRow[] = [
-  // Sample data from 1982-2023 with MF (combined) data
-  { year: 1982, sex: 'MF', nus: 3127, ntu: null, smu: null, sit: null, sutd: null, suss: null, singapore_polytechnic: 3637, ngee_ann_polytechnic: null, temasek_polytechnic: null, nanyang_polytechnic: null, republic_polytechnic: null, nie: 392, ite: null, lasalle_diploma: null, lasalle_degree: null, nafa_diploma: null, nafa_degree: null },
-  { year: 1985, sex: 'MF', nus: 3608, ntu: 1020, smu: null, sit: null, sutd: null, suss: null, singapore_polytechnic: 4108, ngee_ann_polytechnic: 2150, temasek_polytechnic: null, nanyang_polytechnic: null, republic_polytechnic: null, nie: 470, ite: null, lasalle_diploma: null, lasalle_degree: null, nafa_diploma: null, nafa_degree: null },
-  { year: 1990, sex: 'MF', nus: 4805, ntu: 2410, smu: null, sit: null, sutd: null, suss: null, singapore_polytechnic: 4782, ngee_ann_polytechnic: 3650, temasek_polytechnic: 1850, nanyang_polytechnic: null, republic_polytechnic: null, nie: 558, ite: 8500, lasalle_diploma: null, lasalle_degree: null, nafa_diploma: null, nafa_degree: null },
-  { year: 1995, sex: 'MF', nus: 5896, ntu: 3890, smu: null, sit: null, sutd: null, suss: null, singapore_polytechnic: 5420, ngee_ann_polytechnic: 4850, temasek_polytechnic: 3250, nanyang_polytechnic: 2850, republic_polytechnic: null, nie: 685, ite: 12500, lasalle_diploma: 420, lasalle_degree: null, nafa_diploma: 380, nafa_degree: null },
-  { year: 2000, sex: 'MF', nus: 6542, ntu: 5120, smu: 320, sit: null, sutd: null, suss: null, singapore_polytechnic: 6120, ngee_ann_polytechnic: 5680, temasek_polytechnic: 4850, nanyang_polytechnic: 4250, republic_polytechnic: 1850, nie: 752, ite: 16800, lasalle_diploma: 680, lasalle_degree: null, nafa_diploma: 520, nafa_degree: null },
-  { year: 2005, sex: 'MF', nus: 7125, ntu: 5890, smu: 1250, sit: null, sutd: null, suss: 850, singapore_polytechnic: 7250, ngee_ann_polytechnic: 6820, temasek_polytechnic: 5980, nanyang_polytechnic: 5450, republic_polytechnic: 3850, nie: 825, ite: 21500, lasalle_diploma: 920, lasalle_degree: 180, nafa_diploma: 680, nafa_degree: 120 },
-  { year: 2010, sex: 'MF', nus: 7856, ntu: 6520, smu: 2150, sit: 1850, sutd: 340, suss: 1250, singapore_polytechnic: 8150, ngee_ann_polytechnic: 7580, temasek_polytechnic: 6850, nanyang_polytechnic: 6250, republic_polytechnic: 5120, nie: 892, ite: 24800, lasalle_diploma: 1150, lasalle_degree: 380, nafa_diploma: 850, nafa_degree: 280 },
-  { year: 2015, sex: 'MF', nus: 8420, ntu: 7150, smu: 2680, sit: 3250, sutd: 520, suss: 1850, singapore_polytechnic: 8520, ngee_ann_polytechnic: 7920, temasek_polytechnic: 7250, nanyang_polytechnic: 6850, republic_polytechnic: 5850, nie: 945, ite: 26500, lasalle_diploma: 1380, lasalle_degree: 520, nafa_diploma: 980, nafa_degree: 420 },
-  { year: 2018, sex: 'MF', nus: 8850, ntu: 7580, smu: 2950, sit: 4120, sutd: 620, suss: 2250, singapore_polytechnic: 8720, ngee_ann_polytechnic: 8150, temasek_polytechnic: 7450, nanyang_polytechnic: 7050, republic_polytechnic: 6120, nie: 985, ite: 27200, lasalle_diploma: 1520, lasalle_degree: 680, nafa_diploma: 1080, nafa_degree: 520 },
-  { year: 2019, sex: 'MF', nus: 9050, ntu: 7820, smu: 3050, sit: 4580, sutd: 680, suss: 2450, singapore_polytechnic: 8850, ngee_ann_polytechnic: 8280, temasek_polytechnic: 7580, nanyang_polytechnic: 7180, republic_polytechnic: 6280, nie: 1020, ite: 27500, lasalle_diploma: 1580, lasalle_degree: 720, nafa_diploma: 1120, nafa_degree: 580 },
-  { year: 2020, sex: 'MF', nus: 9250, ntu: 8050, smu: 3150, sit: 5020, sutd: 720, suss: 2680, singapore_polytechnic: 8920, ngee_ann_polytechnic: 8350, temasek_polytechnic: 7680, nanyang_polytechnic: 7280, republic_polytechnic: 6380, nie: 1050, ite: 27800, lasalle_diploma: 1620, lasalle_degree: 780, nafa_diploma: 1150, nafa_degree: 620 },
-  { year: 2021, sex: 'MF', nus: 9480, ntu: 8280, smu: 3280, sit: 5450, sutd: 780, suss: 2920, singapore_polytechnic: 9050, ngee_ann_polytechnic: 8450, temasek_polytechnic: 7780, nanyang_polytechnic: 7380, republic_polytechnic: 6480, nie: 1080, ite: 28100, lasalle_diploma: 1680, lasalle_degree: 850, nafa_diploma: 1180, nafa_degree: 680 },
-  { year: 2022, sex: 'MF', nus: 9720, ntu: 8520, smu: 3420, sit: 5920, sutd: 850, suss: 3180, singapore_polytechnic: 9180, ngee_ann_polytechnic: 8550, temasek_polytechnic: 7880, nanyang_polytechnic: 7480, republic_polytechnic: 6580, nie: 1120, ite: 28400, lasalle_diploma: 1750, lasalle_degree: 920, nafa_diploma: 1220, nafa_degree: 750 },
-  { year: 2023, sex: 'MF', nus: 9980, ntu: 8780, smu: 3580, sit: 6420, sutd: 920, suss: 3450, singapore_polytechnic: 9320, ngee_ann_polytechnic: 8680, temasek_polytechnic: 7980, nanyang_polytechnic: 7580, republic_polytechnic: 6680, nie: 1150, ite: 28700, lasalle_diploma: 1820, lasalle_degree: 980, nafa_diploma: 1280, nafa_degree: 820 },
-  // Female data samples
-  { year: 2020, sex: 'F', nus: 4850, ntu: 4120, smu: 1680, sit: 2450, sutd: 280, suss: 1450, singapore_polytechnic: 4280, ngee_ann_polytechnic: 4180, temasek_polytechnic: 3920, nanyang_polytechnic: 3650, republic_polytechnic: 3180, nie: 680, ite: 11200, lasalle_diploma: 1020, lasalle_degree: 520, nafa_diploma: 780, nafa_degree: 420 },
-  { year: 2021, sex: 'F', nus: 4980, ntu: 4250, smu: 1750, sit: 2680, sutd: 310, suss: 1580, singapore_polytechnic: 4350, ngee_ann_polytechnic: 4250, temasek_polytechnic: 3980, nanyang_polytechnic: 3720, republic_polytechnic: 3250, nie: 710, ite: 11400, lasalle_diploma: 1080, lasalle_degree: 580, nafa_diploma: 820, nafa_degree: 480 },
-  { year: 2022, sex: 'F', nus: 5120, ntu: 4380, smu: 1820, sit: 2920, sutd: 340, suss: 1720, singapore_polytechnic: 4420, ngee_ann_polytechnic: 4320, temasek_polytechnic: 4050, nanyang_polytechnic: 3780, republic_polytechnic: 3320, nie: 740, ite: 11600, lasalle_diploma: 1150, lasalle_degree: 650, nafa_diploma: 870, nafa_degree: 550 },
-  { year: 2023, sex: 'F', nus: 5280, ntu: 4520, smu: 1920, sit: 3180, sutd: 380, suss: 1880, singapore_polytechnic: 4520, ngee_ann_polytechnic: 4420, temasek_polytechnic: 4120, nanyang_polytechnic: 3850, republic_polytechnic: 3420, nie: 780, ite: 11800, lasalle_diploma: 1220, lasalle_degree: 720, nafa_diploma: 920, nafa_degree: 620 },
-  // Male data samples
-  { year: 2020, sex: 'M', nus: 4400, ntu: 3930, smu: 1470, sit: 2570, sutd: 440, suss: 1230, singapore_polytechnic: 4640, ngee_ann_polytechnic: 4170, temasek_polytechnic: 3760, nanyang_polytechnic: 3630, republic_polytechnic: 3200, nie: 370, ite: 16600, lasalle_diploma: 600, lasalle_degree: 260, nafa_diploma: 370, nafa_degree: 200 },
-  { year: 2021, sex: 'M', nus: 4500, ntu: 4030, smu: 1530, sit: 2770, sutd: 470, suss: 1340, singapore_polytechnic: 4700, ngee_ann_polytechnic: 4200, temasek_polytechnic: 3800, nanyang_polytechnic: 3660, republic_polytechnic: 3230, nie: 370, ite: 16700, lasalle_diploma: 600, lasalle_degree: 270, nafa_diploma: 360, nafa_degree: 200 },
-  { year: 2022, sex: 'M', nus: 4600, ntu: 4140, smu: 1600, sit: 3000, sutd: 510, suss: 1460, singapore_polytechnic: 4760, ngee_ann_polytechnic: 4230, temasek_polytechnic: 3830, nanyang_polytechnic: 3700, republic_polytechnic: 3260, nie: 380, ite: 16800, lasalle_diploma: 600, lasalle_degree: 270, nafa_diploma: 350, nafa_degree: 200 },
-  { year: 2023, sex: 'M', nus: 4700, ntu: 4260, smu: 1660, sit: 3240, sutd: 540, suss: 1570, singapore_polytechnic: 4800, ngee_ann_polytechnic: 4260, temasek_polytechnic: 3860, nanyang_polytechnic: 3730, republic_polytechnic: 3260, nie: 370, ite: 16900, lasalle_diploma: 600, lasalle_degree: 260, nafa_diploma: 360, nafa_degree: 200 },
+// Analysis mode configurations
+const ANALYSIS_MODES: { mode: AnalysisMode; label: string; description: string; icon: React.ReactNode }[] = [
+  { mode: 'trend', label: 'Trend Over Time', description: 'Track intake trends by institution', icon: <TrendingUp className="w-5 h-5" /> },
+  { mode: 'comparison', label: 'Institution Comparison', description: 'Compare total intake across institutions', icon: <BarChartIcon className="w-5 h-5" /> },
+  { mode: 'growth', label: 'Growth Analysis', description: 'Year-over-year growth rates', icon: <ArrowUpRight className="w-5 h-5" /> },
+  { mode: 'gender', label: 'Gender Analytics', description: 'Compare Male vs Female intake trends', icon: <Users className="w-5 h-5" /> },
 ];
-
-// Available years in the dataset
-const MIN_YEAR = 1982;
-const MAX_YEAR = 2023;
 
 // ============================================================================
 // SUB-COMPONENTS
@@ -118,11 +103,57 @@ const InstitutionCheckboxGroup: React.FC<InstitutionCheckboxGroupProps> = ({
   );
 };
 
+// Growth indicator component
+const GrowthIndicator: React.FC<{ value: number | null }> = ({ value }) => {
+  if (value === null || isNaN(value)) return <span className="text-gray-400">—</span>;
+  
+  const isPositive = value > 0;
+  const isNeutral = value === 0;
+  
+  return (
+    <span className={`inline-flex items-center gap-1 font-medium ${
+      isNeutral ? 'text-gray-500' : isPositive ? 'text-green-600' : 'text-red-600'
+    }`}>
+      {isNeutral ? (
+        <Minus className="w-3 h-3" />
+      ) : isPositive ? (
+        <ArrowUpRight className="w-3 h-3" />
+      ) : (
+        <ArrowDownRight className="w-3 h-3" />
+      )}
+      {Math.abs(value).toFixed(1)}%
+    </span>
+  );
+};
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
 export const IntakeAnalytics: React.FC = () => {
+  // API Data State
+  const [timeSeriesResult, setTimeSeriesResult] = useState<JobResult | null>(null);
+  const [groupByResult, setGroupByResult] = useState<JobResult | null>(null);
+  const [comparativeResult, setComparativeResult] = useState<JobResult | null>(null);
+  const [genderComparisonResult, setGenderComparisonResult] = useState<JobResult | null>(null);
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Year range derived from time series data
+  const minYear = useMemo(() => {
+    if (!timeSeriesResult?.visualization?.series?.[0]?.points) return 1982;
+    const years = timeSeriesResult.visualization.series[0].points.map((p: DataPoint) => p.x as number);
+    return Math.min(...years);
+  }, [timeSeriesResult]);
+  
+  const maxYear = useMemo(() => {
+    if (!timeSeriesResult?.visualization?.series?.[0]?.points) return 2024;
+    const years = timeSeriesResult.visualization.series[0].points.map((p: DataPoint) => p.x as number);
+    return Math.max(...years);
+  }, [timeSeriesResult]);
+
   // Filter State
   const [selectedInstitutions, setSelectedInstitutions] = useState<InstitutionKey[]>([
     'nus',
@@ -131,10 +162,79 @@ export const IntakeAnalytics: React.FC = () => {
     'sit',
   ]);
   const [yearFrom, setYearFrom] = useState(2015);
-  const [yearTo, setYearTo] = useState(2023);
+  const [yearTo, setYearTo] = useState(2024);
   const [sex, setSex] = useState<Sex>('MF');
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('trend');
-  const [comparisonYear, setComparisonYear] = useState(2023);
+  const [showForecast, setShowForecast] = useState(true);
+  const [comparisonChartType, setComparisonChartType] = useState<'bar' | 'horizontal' | 'grouped'>('bar');
+  const FORECAST_YEARS = 5; // 5-year projection
+
+  // Initial data load
+  const fetchInitialData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Fetch core data in parallel
+      const [timeSeries, groupBy] = await Promise.all([
+        intakeApi.getTimeSeries('MF'),
+        intakeApi.getGroupByInstitution('MF'),
+      ]);
+      
+      setTimeSeriesResult(timeSeries);
+      setGroupByResult(groupBy);
+      
+      // Update yearTo based on data
+      const years = timeSeries.visualization.series[0].points.map((p: DataPoint) => p.x as number);
+      const latestYear = Math.max(...years);
+      setYearTo(latestYear);
+    } catch (err) {
+      console.error('Failed to fetch data:', err);
+      setError('Failed to load data from the server. Please check your connection.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Load data on component mount
+  useEffect(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  // Fetch comparative data when institutions change (for trend mode)
+  useEffect(() => {
+    if (!isLoading && selectedInstitutions.length >= 2) {
+      intakeApi.getComparative(selectedInstitutions, sex)
+        .then(setComparativeResult)
+        .catch(console.error);
+    }
+  }, [selectedInstitutions, sex, isLoading]);
+
+  // Fetch gender comparison data when institutions change (for gender mode)
+  useEffect(() => {
+    if (!isLoading && selectedInstitutions.length > 0) {
+      intakeApi.getGenderComparison(selectedInstitutions)
+        .then(setGenderComparisonResult)
+        .catch(console.error);
+    }
+  }, [selectedInstitutions, isLoading]);
+
+  // Refetch data when sex filter changes
+  const handleSexChange = useCallback(async (newSex: Sex) => {
+    setSex(newSex);
+    setIsRefreshing(true);
+    try {
+      const [timeSeries, groupBy] = await Promise.all([
+        intakeApi.getTimeSeries(newSex),
+        intakeApi.getGroupByInstitution(newSex),
+      ]);
+      setTimeSeriesResult(timeSeries);
+      setGroupByResult(groupBy);
+    } catch (err) {
+      console.error('Failed to refetch data:', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
 
   // Handlers
   const handleToggleInstitution = (institution: InstitutionKey) => {
@@ -160,110 +260,541 @@ export const IntakeAnalytics: React.FC = () => {
   const handleReset = () => {
     setSelectedInstitutions(['nus', 'ntu', 'smu', 'sit']);
     setYearFrom(2015);
-    setYearTo(2023);
+    setYearTo(maxYear);
     setSex('MF');
     setAnalysisMode('trend');
-    setComparisonYear(2023);
+    setShowForecast(true);
+    setComparisonChartType('bar');
   };
 
-  // Filtered Data
-  const filteredData = useMemo(() => {
-    return MOCK_DATA.filter((row) => {
-      if (row.sex !== sex) return false;
-      if (analysisMode === 'trend') {
-        return row.year >= yearFrom && row.year <= yearTo;
-      } else {
-        return row.year === comparisonYear;
-      }
-    }).sort((a, b) => a.year - b.year);
-  }, [sex, yearFrom, yearTo, analysisMode, comparisonYear]);
+  // Check if the analysis mode needs certain filters
+  const needsGenderFilter = true; // All modes support gender filter
+  // All modes now support institution filtering
+  const needsInstitutionFilter = true;
+  const needsForecastOption = analysisMode === 'trend' && yearTo === maxYear;
 
-  // Chart Data for Trend Mode
+  // Auto-disable forecast when yearTo is not the latest year
+  useEffect(() => {
+    if (yearTo !== maxYear) {
+      setShowForecast(false);
+    }
+  }, [yearTo, maxYear]);
+
+  // ============================================================================
+  // DATA TRANSFORMATIONS FROM API RESULTS
+  // ============================================================================
+  
+  // TREND MODE DATA - From comparative API for multiple institution lines
   const trendChartData = useMemo(() => {
     if (analysisMode !== 'trend') return [];
-    return filteredData.map((row) => {
-      const dataPoint: Record<string, any> = { year: row.year };
-      selectedInstitutions.forEach((inst) => {
-        const value = row[inst];
-        dataPoint[inst] = isValidNumber(value) ? value : null;
+    
+    // Use comparative result when we have selected institutions
+    if (comparativeResult && comparativeResult.visualization.series.length > 0) {
+      const yearData: Record<number, any> = {};
+      
+      comparativeResult.visualization.series.forEach((series: ChartSeries) => {
+        const instKey = series.name as InstitutionKey;
+        // Only include selected institutions
+        if (selectedInstitutions.includes(instKey)) {
+          series.points.forEach((p: DataPoint) => {
+            const year = p.x as number;
+            if (year >= yearFrom && year <= yearTo) {
+              if (!yearData[year]) {
+                yearData[year] = { year, isForecast: false };
+              }
+              const label = getInstitutionLabel(instKey);
+              yearData[year][label] = p.y;
+            }
+          });
+        }
       });
-      return dataPoint;
-    });
-  }, [filteredData, selectedInstitutions, analysisMode]);
+      
+      const historicalData = Object.values(yearData).sort((a: any, b: any) => a.year - b.year);
+      
+      // Add forecast data if enabled (simple linear projection per institution)
+      if (showForecast && yearTo === maxYear && historicalData.length >= 2) {
+        const lastTwo = historicalData.slice(-2);
+        const institutions = selectedInstitutions.map(i => getInstitutionLabel(i));
+        
+        // Connect forecast to last historical point
+        const lastHistorical = historicalData[historicalData.length - 1] as any;
+        institutions.forEach(inst => {
+          if (lastHistorical[inst] !== undefined) {
+            lastHistorical[`${inst}_forecast`] = lastHistorical[inst];
+          }
+        });
+        
+        // Project forward for each institution
+        for (let i = 1; i <= FORECAST_YEARS; i++) {
+          const forecastYear = maxYear + i;
+          const forecastPoint: any = { year: forecastYear, isForecast: true };
+          
+          institutions.forEach(inst => {
+            const val1 = (lastTwo[0] as any)?.[inst];
+            const val2 = (lastTwo[1] as any)?.[inst];
+            if (val1 !== undefined && val2 !== undefined) {
+              const slope = val2 - val1;
+              forecastPoint[`${inst}_forecast`] = val2 + slope * i;
+              forecastPoint[inst] = null; // null prevents solid line from drawing
+            }
+          });
+          
+          historicalData.push(forecastPoint);
+        }
+      }
+      
+      return historicalData;
+    }
+    
+    // Fallback to total time series if no comparative data
+    if (!timeSeriesResult) return [];
+    
+    const points = timeSeriesResult.visualization.series[0]?.points || [];
+    return points
+      .filter((p: DataPoint) => {
+        const year = p.x as number;
+        return year >= yearFrom && year <= yearTo;
+      })
+      .map((p: DataPoint) => ({
+        year: p.x as number,
+        Total: p.y,
+        isForecast: false,
+      }));
+  }, [comparativeResult, timeSeriesResult, analysisMode, yearFrom, yearTo, maxYear, showForecast, selectedInstitutions, FORECAST_YEARS]);
 
-  // Chart Data for Comparison Mode
+  // COMPARISON MODE DATA - From API Group By
   const comparisonChartData = useMemo(() => {
-    if (analysisMode !== 'comparison' || filteredData.length === 0) return [];
-    const row = filteredData[0];
-    return selectedInstitutions
-      .map((inst) => ({
-        institution: getInstitutionLabel(inst),
-        institutionKey: inst,
-        intake: isValidNumber(row[inst]) ? row[inst] : 0,
+    if (analysisMode !== 'comparison' || !groupByResult) return [];
+    
+    const points = groupByResult.visualization.series[0]?.points || [];
+    
+    return points
+      .filter((p: DataPoint) => selectedInstitutions.includes(p.x as InstitutionKey))
+      .map((p: DataPoint) => ({
+        institution: getInstitutionLabel(p.x as InstitutionKey),
+        institutionKey: p.x as string,
+        intake: p.y,
       }))
-      .filter((d) => d.intake > 0)
-      .sort((a, b) => (b.intake ?? 0) - (a.intake ?? 0));
-  }, [filteredData, selectedInstitutions, analysisMode]);
+      .sort((a, b) => b.intake - a.intake);
+  }, [groupByResult, analysisMode, selectedInstitutions]);
 
-  // Line Chart Series
-  const lineSeries: LineChartSeries[] = useMemo(() => {
-    return selectedInstitutions.map((inst) => ({
-      dataKey: inst,
+  // GROWTH ANALYSIS DATA - Calculated from time series
+  const growthChartData = useMemo(() => {
+    if (analysisMode !== 'growth' || !timeSeriesResult) return [];
+    
+    const points = timeSeriesResult.visualization.series[0]?.points || [];
+    const filteredPoints = points.filter((p: DataPoint) => {
+      const year = p.x as number;
+      return year >= yearFrom - 1 && year <= yearTo;
+    });
+    
+    const growthData: Record<string, any>[] = [];
+    
+    for (let i = 1; i < filteredPoints.length; i++) {
+      const curr = filteredPoints[i];
+      const prev = filteredPoints[i - 1];
+      const year = curr.x as number;
+      
+      if (year >= yearFrom) {
+        const growth = prev.y !== 0 ? ((curr.y - prev.y) / prev.y) * 100 : 0;
+        growthData.push({
+          year,
+          growth: growth,
+          isForecast: false,
+        });
+      }
+    }
+    
+    return growthData;
+  }, [timeSeriesResult, analysisMode, yearFrom, yearTo]);
+
+  // GENDER ANALYTICS DATA - From gender comparison API
+  const genderChartData = useMemo(() => {
+    if (analysisMode !== 'gender') return [];
+    
+    if (genderComparisonResult && genderComparisonResult.visualization.series.length > 0) {
+      const yearData: Record<number, any> = {};
+      
+      genderComparisonResult.visualization.series.forEach((series: ChartSeries) => {
+        const sexKey = series.name; // 'M', 'F', or 'MF'
+        series.points.forEach((p: DataPoint) => {
+          const year = p.x as number;
+          if (year >= yearFrom && year <= yearTo) {
+            if (!yearData[year]) {
+              yearData[year] = { year };
+            }
+            // Use readable labels
+            const label = sexKey === 'M' ? 'Male' : sexKey === 'F' ? 'Female' : 'Total';
+            yearData[year][label] = p.y;
+          }
+        });
+      });
+      
+      return Object.values(yearData).sort((a: any, b: any) => a.year - b.year);
+    }
+    
+    return [];
+  }, [genderComparisonResult, analysisMode, yearFrom, yearTo]);
+
+  // ============================================================================
+  // CHART SERIES CONFIGURATIONS
+  // ============================================================================
+  const SERIES_COLORS = [
+    '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+  ];
+
+  // Dynamic trend series based on selected institutions
+  const trendSeries: LineChartSeries[] = useMemo(() => {
+    return selectedInstitutions.map((inst, index) => ({
+      dataKey: getInstitutionLabel(inst),
       name: getInstitutionLabel(inst),
+      color: SERIES_COLORS[index % SERIES_COLORS.length],
+      dot: true,
     }));
   }, [selectedInstitutions]);
 
-  // Bar Chart Series
-  const barSeries: BarChartSeries[] = [
-    { dataKey: 'intake', name: 'Intake' },
+  // Forecast series for trend (dashed lines)
+  const trendForecastSeries: LineChartSeries[] = useMemo(() => {
+    return selectedInstitutions.map((inst, index) => ({
+      dataKey: `${getInstitutionLabel(inst)}_forecast`,
+      name: `${getInstitutionLabel(inst)} (Forecast)`,
+      color: SERIES_COLORS[index % SERIES_COLORS.length],
+      strokeDasharray: '5 5',
+      dot: false,
+    }));
+  }, [selectedInstitutions]);
+
+  // Growth series
+  const growthSeries: LineChartSeries[] = [
+    { dataKey: 'growth', name: 'Growth Rate', color: '#10b981', dot: true },
   ];
 
-  // Table Columns
+  // Gender series (Male vs Female)
+  const genderSeries: LineChartSeries[] = [
+    { dataKey: 'Male', name: 'Male', color: '#3b82f6', dot: true },
+    { dataKey: 'Female', name: 'Female', color: '#ec4899', dot: true },
+  ];
+
+  // Bar series for comparison
+  const barSeries: BarChartSeries[] = [
+    { dataKey: 'intake', name: 'Total Intake (All Years)', color: '#3b82f6' },
+  ];
+
+  // ============================================================================
+  // TABLE CONFIGURATIONS
+  // ============================================================================
   const tableColumns: Column<Record<string, any>>[] = useMemo(() => {
-    if (analysisMode === 'trend') {
-      return [
-        { key: 'year', header: 'Year', sortable: true },
-        ...selectedInstitutions.map((inst) => ({
-          key: inst,
-          header: getInstitutionLabel(inst),
-          render: (value: number | null) => formatNumber(value),
-        })),
-      ];
-    } else {
-      return [
-        { key: 'institution', header: 'Institution' },
-        {
-          key: 'intake',
-          header: 'Intake',
-          render: (value: number) => formatNumber(value),
-        },
-      ];
+    switch (analysisMode) {
+      case 'trend':
+        const trendCols: Column<Record<string, any>>[] = [
+          { key: 'year', header: 'Year', sortable: true },
+        ];
+        selectedInstitutions.forEach(inst => {
+          const label = getInstitutionLabel(inst);
+          trendCols.push({
+            key: label,
+            header: label,
+            render: (v: number) => formatNumber(v),
+          });
+        });
+        return trendCols;
+      case 'comparison':
+        return [
+          { key: 'institution', header: 'Institution' },
+          { key: 'intake', header: 'Total Intake (All Years)', render: (v: number) => formatNumber(v) },
+        ];
+      case 'growth':
+        return [
+          { key: 'year', header: 'Year', sortable: true },
+          { key: 'growth', header: 'Growth Rate', render: (v: number) => <GrowthIndicator value={v} /> },
+        ];
+      case 'gender':
+        return [
+          { key: 'year', header: 'Year', sortable: true },
+          { key: 'Male', header: 'Male', render: (v: number) => formatNumber(v) },
+          { key: 'Female', header: 'Female', render: (v: number) => formatNumber(v) },
+        ];
+      default:
+        return [];
     }
   }, [analysisMode, selectedInstitutions]);
 
-  // Table Data
-  const tableData = analysisMode === 'trend' ? trendChartData : comparisonChartData;
+  // Table Data (filter out forecast rows)
+  const tableData = useMemo(() => {
+    switch (analysisMode) {
+      case 'trend':
+        return trendChartData.filter(d => !d.isForecast);
+      case 'comparison':
+        return comparisonChartData;
+      case 'growth':
+        return growthChartData.filter(d => !d.isForecast);
+      case 'gender':
+        return genderChartData;
+      default:
+        return [];
+    }
+  }, [analysisMode, trendChartData, comparisonChartData, growthChartData, genderChartData]);
 
-  // Calculate summary stats
+  // ============================================================================
+  // SUMMARY STATISTICS
+  // ============================================================================
   const summaryStats = useMemo(() => {
-    if (analysisMode === 'trend' && trendChartData.length > 0) {
-      const totals = selectedInstitutions.map((inst) => {
-        const values = trendChartData
-          .map((d) => d[inst])
-          .filter(isValidNumber);
-        const sum = values.reduce((a, b) => a + b, 0);
-        const avg = values.length > 0 ? sum / values.length : 0;
-        return { inst, sum, avg, count: values.length };
-      });
-      const grandTotal = totals.reduce((a, t) => a + t.sum, 0);
-      return { totals, grandTotal };
+    switch (analysisMode) {
+      case 'trend':
+        if (trendChartData.length === 0) return null;
+        const historicalTrend = trendChartData.filter(d => !d.isForecast);
+        return { 
+          institutions: selectedInstitutions.length, 
+          years: historicalTrend.length,
+          forecast: showForecast ? 'Enabled' : 'Disabled'
+        };
+        
+      case 'comparison':
+        const compTotal = comparisonChartData.reduce((a, d) => a + d.intake, 0);
+        return { total: compTotal, institutions: comparisonChartData.length };
+        
+      case 'growth':
+        if (growthChartData.length === 0) return null;
+        const avgGrowth = growthChartData.reduce((sum, d) => sum + d.growth, 0) / growthChartData.length;
+        return { avgGrowth, years: growthChartData.length };
+
+      case 'gender':
+        if (genderChartData.length === 0) return null;
+        const totalMale = genderChartData.reduce((sum, d) => sum + (d.Male || 0), 0);
+        const totalFemale = genderChartData.reduce((sum, d) => sum + (d.Female || 0), 0);
+        return { totalMale, totalFemale, years: genderChartData.length };
+        
+      default:
+        return null;
     }
-    if (analysisMode === 'comparison' && comparisonChartData.length > 0) {
-      const total = comparisonChartData.reduce((a, d) => a + (d.intake ?? 0), 0);
-      return { total };
+  }, [analysisMode, trendChartData, comparisonChartData, growthChartData, genderChartData, selectedInstitutions, showForecast]);
+
+  // ============================================================================
+  // RENDER CHART
+  // ============================================================================
+  const renderChart = () => {
+    if (isRefreshing) {
+      return (
+        <div className="flex flex-col items-center justify-center h-80 text-gray-500">
+          <Loader2 className="w-8 h-8 animate-spin mb-2" />
+          <p>Updating data...</p>
+        </div>
+      );
     }
-    return null;
-  }, [analysisMode, trendChartData, comparisonChartData, selectedInstitutions]);
+
+    switch (analysisMode) {
+      case 'trend':
+        if (selectedInstitutions.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center h-80 text-gray-500">
+              <Info className="w-12 h-12 mb-4" />
+              <p>Select at least one institution to view the chart</p>
+            </div>
+          );
+        }
+        const allTrendSeries = showForecast ? [...trendSeries, ...trendForecastSeries] : trendSeries;
+        return (
+          <div className="space-y-4">
+            {showForecast && (
+              <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+                <Sparkles className="w-4 h-4" />
+                <span>Dashed lines show {FORECAST_YEARS}-year linear projection</span>
+              </div>
+            )}
+            <LineChart
+              data={trendChartData}
+              xAxisKey="year"
+              series={allTrendSeries}
+              xAxisLabel="Year"
+              yAxisLabel="Student Intake"
+              height={400}
+              formatTooltip={(v) => formatNumber(v)}
+            />
+          </div>
+        );
+
+      case 'comparison':
+        if (selectedInstitutions.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center h-80 text-gray-500">
+              <Info className="w-12 h-12 mb-4" />
+              <p>Select at least one institution to view the chart</p>
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Chart Type:</span>
+              <select
+                value={comparisonChartType}
+                onChange={(e) => setComparisonChartType(e.target.value as 'bar' | 'horizontal' | 'grouped')}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="bar">Vertical Bar</option>
+                <option value="horizontal">Horizontal Bar</option>
+                <option value="grouped">Grouped by Sector</option>
+              </select>
+            </div>
+            {comparisonChartType === 'grouped' ? (
+              <BarChart
+                data={(() => {
+                  const groups = INSTITUTION_GROUPS.map(group => {
+                    const total = group.institutions
+                      .filter(inst => selectedInstitutions.includes(inst))
+                      .reduce((sum, inst) => {
+                        const row = comparisonChartData.find(d => d.institutionKey === inst);
+                        return sum + (row?.intake ?? 0);
+                      }, 0);
+                    return { sector: group.name, intake: total };
+                  }).filter(g => g.intake > 0);
+                  return groups;
+                })()}
+                xAxisKey="sector"
+                series={barSeries}
+                xAxisLabel="Sector"
+                yAxisLabel="Total Intake"
+                height={400}
+                useColorPerBar
+                formatTooltip={(v) => formatNumber(v)}
+              />
+            ) : (
+              <BarChart
+                data={comparisonChartData}
+                xAxisKey="institution"
+                series={barSeries}
+                xAxisLabel="Institution"
+                yAxisLabel="Total Intake"
+                height={400}
+                useColorPerBar
+                formatTooltip={(v) => formatNumber(v)}
+                layout={comparisonChartType === 'horizontal' ? 'vertical' : 'horizontal'}
+              />
+            )}
+          </div>
+        );
+
+      case 'growth':
+        return (
+          <LineChart
+            data={growthChartData}
+            xAxisKey="year"
+            series={growthSeries}
+            xAxisLabel="Year"
+            yAxisLabel="Growth Rate (%)"
+            height={400}
+            formatTooltip={(v) => `${v?.toFixed(1) ?? 'N/A'}%`}
+          />
+        );
+
+      case 'gender':
+        if (genderChartData.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center h-80 text-gray-500">
+              <Info className="w-12 h-12 mb-4" />
+              <p>No gender data available for the selected filters</p>
+            </div>
+          );
+        }
+        return (
+          <LineChart
+            data={genderChartData}
+            xAxisKey="year"
+            series={genderSeries}
+            xAxisLabel="Year"
+            yAxisLabel="Student Intake"
+            height={400}
+            formatTooltip={(v) => formatNumber(v)}
+          />
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  // ============================================================================
+  // RENDER SUMMARY CARDS
+  // ============================================================================
+  const renderSummaryCards = () => {
+    const cards: { label: string; value: string | number }[] = [];
+
+    switch (analysisMode) {
+      case 'trend':
+        cards.push(
+          { label: 'Years Analyzed', value: `${yearFrom}-${yearTo}` },
+          { label: 'Institutions', value: (summaryStats as any)?.institutions || 0 },
+          { label: 'Data Points', value: (summaryStats as any)?.years || 0 },
+          { label: 'Forecast', value: showForecast ? `${FORECAST_YEARS} years` : 'Disabled' },
+        );
+        break;
+      case 'comparison':
+        cards.push(
+          { label: 'Institutions', value: (summaryStats as any)?.institutions || 0 },
+          { label: 'Total Intake', value: formatNumber((summaryStats as any)?.total) },
+          { label: 'Gender Filter', value: sex === 'MF' ? 'All' : sex },
+          { label: 'Chart Type', value: comparisonChartType },
+        );
+        break;
+      case 'growth':
+        cards.push(
+          { label: 'Years Analyzed', value: `${yearFrom}-${yearTo}` },
+          { label: 'Data Points', value: (summaryStats as any)?.years || 0 },
+          { label: 'Avg Growth', value: `${((summaryStats as any)?.avgGrowth || 0).toFixed(1)}%` },
+          { label: 'Gender Filter', value: sex === 'MF' ? 'All' : sex },
+        );
+        break;
+      case 'gender':
+        cards.push(
+          { label: 'Years Analyzed', value: `${yearFrom}-${yearTo}` },
+          { label: 'Total Male', value: formatNumber((summaryStats as any)?.totalMale) },
+          { label: 'Total Female', value: formatNumber((summaryStats as any)?.totalFemale) },
+          { label: 'Institutions', value: selectedInstitutions.length },
+        );
+        break;
+    }
+
+    return cards.map((card, index) => (
+      <Card key={index} variant="bordered" padding="sm">
+        <div className="text-center">
+          <p className="text-sm text-gray-500">{card.label}</p>
+          <p className="text-2xl font-bold text-primary-600">{card.value}</p>
+        </div>
+      </Card>
+    ));
+  };
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+  
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <Loader2 className="w-12 h-12 text-primary-600 animate-spin" />
+        <p className="text-gray-600">Loading intake data from API...</p>
+        <p className="text-sm text-gray-400">Submitting analysis jobs...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <AlertCircle className="w-12 h-12 text-red-500" />
+        <p className="text-gray-900 font-medium">Error Loading Data</p>
+        <p className="text-gray-600 text-center max-w-md">{error}</p>
+        <Button
+          variant="primary"
+          leftIcon={<RefreshCw className="w-4 h-4" />}
+          onClick={fetchInitialData}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -276,8 +807,20 @@ export const IntakeAnalytics: React.FC = () => {
           <p className="text-gray-600 mt-1">
             Analyze student intake trends across Singapore's educational institutions
           </p>
+          <p className="text-xs text-gray-400 mt-1">
+            Data powered by DAaaS API
+          </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />}
+            onClick={fetchInitialData}
+            disabled={isRefreshing}
+          >
+            Refresh
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -309,126 +852,144 @@ export const IntakeAnalytics: React.FC = () => {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="analysisMode"
-                    checked={analysisMode === 'trend'}
-                    onChange={() => setAnalysisMode('trend')}
-                    className="w-4 h-4 text-primary-600"
-                  />
-                  <TrendingUp className="w-5 h-5 text-gray-500" />
-                  <span className="font-medium">Trend over Time</span>
-                </label>
-                <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="analysisMode"
-                    checked={analysisMode === 'comparison'}
-                    onChange={() => setAnalysisMode('comparison')}
-                    className="w-4 h-4 text-primary-600"
-                  />
-                  <BarChartIcon className="w-5 h-5 text-gray-500" />
-                  <span className="font-medium">Institution Comparison</span>
-                </label>
+                {ANALYSIS_MODES.map((mode) => (
+                  <label 
+                    key={mode.mode}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      analysisMode === mode.mode 
+                        ? 'border-primary-500 bg-primary-50' 
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="analysisMode"
+                      checked={analysisMode === mode.mode}
+                      onChange={() => setAnalysisMode(mode.mode)}
+                      className="w-4 h-4 text-primary-600"
+                    />
+                    <div className={`${analysisMode === mode.mode ? 'text-primary-600' : 'text-gray-500'}`}>
+                      {mode.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium text-sm block">{mode.label}</span>
+                      <span className="text-xs text-gray-500 truncate block">{mode.description}</span>
+                    </div>
+                  </label>
+                ))}
               </div>
             </CardContent>
           </Card>
 
-          {/* Year Range / Year Selection */}
+          {/* Year Range */}
           <Card variant="bordered">
             <CardHeader>
-              <CardTitle>
-                {analysisMode === 'trend' ? 'Year Range' : 'Comparison Year'}
-              </CardTitle>
+              <CardTitle>Year Range</CardTitle>
             </CardHeader>
             <CardContent>
-              {analysisMode === 'trend' ? (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">From</label>
-                    <select
-                      value={yearFrom}
-                      onChange={(e) => setYearFrom(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    >
-                      {generateYearRange(MIN_YEAR, yearTo).map((year) => (
-                        <option key={year} value={year}>
-                          {year}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">To</label>
-                    <select
-                      value={yearTo}
-                      onChange={(e) => setYearTo(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    >
-                      {generateYearRange(yearFrom, MAX_YEAR).map((year) => (
-                        <option key={year} value={year}>
-                          {year}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ) : (
+              <div className="space-y-4">
                 <div>
+                  <label className="block text-sm text-gray-600 mb-1">From</label>
                   <select
-                    value={comparisonYear}
-                    onChange={(e) => setComparisonYear(Number(e.target.value))}
+                    value={yearFrom}
+                    onChange={(e) => setYearFrom(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   >
-                    {generateYearRange(MIN_YEAR, MAX_YEAR).map((year) => (
+                    {generateYearRange(minYear, yearTo).map((year) => (
                       <option key={year} value={year}>
                         {year}
                       </option>
                     ))}
                   </select>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Sex Filter */}
-          <Card variant="bordered">
-            <CardHeader>
-              <CardTitle>Gender Filter</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-2">
-                {(['MF', 'F', 'M'] as Sex[]).map((option) => (
-                  <button
-                    key={option}
-                    onClick={() => setSex(option)}
-                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      sex === option
-                        ? 'bg-primary-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">To</label>
+                  <select
+                    value={yearTo}
+                    onChange={(e) => setYearTo(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   >
-                    {option === 'MF' ? 'All' : option === 'F' ? 'Female' : 'Male'}
-                  </button>
-                ))}
+                    {generateYearRange(yearFrom, maxYear).map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </CardContent>
           </Card>
 
+          {/* Forecast Toggle */}
+          {needsForecastOption && (
+            <Card variant="bordered">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  Predictive Analytics
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showForecast}
+                    onChange={(e) => setShowForecast(e.target.checked)}
+                    className="w-4 h-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900 block">Show Forecast</span>
+                    <span className="text-xs text-gray-500">
+                      {FORECAST_YEARS}-year projection from API
+                    </span>
+                  </div>
+                </label>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Sex Filter */}
+          {needsGenderFilter && (
+            <Card variant="bordered">
+              <CardHeader>
+                <CardTitle>Gender Filter</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2">
+                  {(['MF', 'F', 'M'] as Sex[]).map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => handleSexChange(option)}
+                      disabled={isRefreshing}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        sex === option
+                          ? 'bg-primary-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      } ${isRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      {option === 'MF' ? 'All' : option === 'F' ? 'Female' : 'Male'}
+                    </button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Institution Selector */}
-          <Card variant="bordered">
-            <CardHeader>
-              <CardTitle>Institutions</CardTitle>
-            </CardHeader>
-            <CardContent className="max-h-80 overflow-y-auto">
-              <InstitutionCheckboxGroup
-                selectedInstitutions={selectedInstitutions}
-                onToggle={handleToggleInstitution}
-                onToggleGroup={handleToggleGroup}
-              />
-            </CardContent>
-          </Card>
+          {needsInstitutionFilter && (
+            <Card variant="bordered">
+              <CardHeader>
+                <CardTitle>Institutions</CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-80 overflow-y-auto">
+                <InstitutionCheckboxGroup
+                  selectedInstitutions={selectedInstitutions}
+                  onToggle={handleToggleInstitution}
+                  onToggleGroup={handleToggleGroup}
+                />
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Visualization Area */}
@@ -436,48 +997,7 @@ export const IntakeAnalytics: React.FC = () => {
           {/* Summary Stats */}
           {summaryStats && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card variant="bordered" padding="sm">
-                <div className="text-center">
-                  <p className="text-sm text-gray-500">Selected Institutions</p>
-                  <p className="text-2xl font-bold text-primary-600">
-                    {selectedInstitutions.length}
-                  </p>
-                </div>
-              </Card>
-              <Card variant="bordered" padding="sm">
-                <div className="text-center">
-                  <p className="text-sm text-gray-500">
-                    {analysisMode === 'trend' ? 'Years Analyzed' : 'Year'}
-                  </p>
-                  <p className="text-2xl font-bold text-primary-600">
-                    {analysisMode === 'trend'
-                      ? `${yearFrom}-${yearTo}`
-                      : comparisonYear}
-                  </p>
-                </div>
-              </Card>
-              <Card variant="bordered" padding="sm">
-                <div className="text-center">
-                  <p className="text-sm text-gray-500">Data Points</p>
-                  <p className="text-2xl font-bold text-primary-600">
-                    {tableData.length}
-                  </p>
-                </div>
-              </Card>
-              <Card variant="bordered" padding="sm">
-                <div className="text-center">
-                  <p className="text-sm text-gray-500">
-                    {analysisMode === 'trend' ? 'Grand Total' : 'Total Intake'}
-                  </p>
-                  <p className="text-2xl font-bold text-primary-600">
-                    {formatNumber(
-                      analysisMode === 'trend'
-                        ? (summaryStats as any).grandTotal
-                        : (summaryStats as any).total
-                    )}
-                  </p>
-                </div>
-              </Card>
+              {renderSummaryCards()}
             </div>
           )}
 
@@ -485,48 +1005,16 @@ export const IntakeAnalytics: React.FC = () => {
           <Card variant="elevated">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                {analysisMode === 'trend' ? (
-                  <>
-                    <TrendingUp className="w-5 h-5" />
-                    Intake Trends ({yearFrom} - {yearTo})
-                  </>
-                ) : (
-                  <>
-                    <BarChartIcon className="w-5 h-5" />
-                    Institution Comparison ({comparisonYear})
-                  </>
-                )}
+                {ANALYSIS_MODES.find(m => m.mode === analysisMode)?.icon}
+                {ANALYSIS_MODES.find(m => m.mode === analysisMode)?.label}
+                {analysisMode === 'trend' && showForecast
+                  ? ` (${yearFrom} - ${maxYear + FORECAST_YEARS})`
+                  : ` (${yearFrom} - ${yearTo})`
+                }
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {selectedInstitutions.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-80 text-gray-500">
-                  <Info className="w-12 h-12 mb-4" />
-                  <p>Select at least one institution to view the chart</p>
-                </div>
-              ) : analysisMode === 'trend' ? (
-                <LineChart
-                  data={trendChartData}
-                  xAxisKey="year"
-                  series={lineSeries}
-                  xAxisLabel="Year"
-                  yAxisLabel="Student Intake"
-                  height={400}
-                  formatTooltip={(v) => formatNumber(v)}
-                />
-              ) : (
-                <BarChart
-                  data={comparisonChartData}
-                  xAxisKey="institution"
-                  series={barSeries}
-                  xAxisLabel="Institution"
-                  yAxisLabel="Student Intake"
-                  height={400}
-                  useColorPerBar
-                  formatTooltip={(v) => formatNumber(v)}
-                  layout="vertical"
-                />
-              )}
+              {renderChart()}
             </CardContent>
           </Card>
 
@@ -542,11 +1030,11 @@ export const IntakeAnalytics: React.FC = () => {
               <Table
                 columns={tableColumns}
                 data={tableData}
-                keyExtractor={(row, index) =>
-                  analysisMode === 'trend'
-                    ? `${row.year}-${index}`
-                    : row.institutionKey || index
-                }
+                keyExtractor={(row, index) => {
+                  if ('year' in row) return `${row.year}-${index}`;
+                  if ('institutionKey' in row) return row.institutionKey;
+                  return String(index);
+                }}
                 compact
                 emptyMessage="No data available for the selected filters"
               />

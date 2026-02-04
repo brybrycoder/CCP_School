@@ -10,8 +10,8 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Table, Column } from '../components/ui';
-import { Job, JobStatus } from '../types';
-import { jobsApi } from '../api';
+import { JobStatus } from '../types';
+import { intakeApi, ApiJob } from '../api';
 import { formatDateTime } from '../utils';
 
 // Status badge component
@@ -47,55 +47,9 @@ const StatusBadge: React.FC<{ status: JobStatus }> = ({ status }) => {
   );
 };
 
-// Mock jobs for demonstration
-const MOCK_JOBS: Job[] = [
-  {
-    jobId: 'job-001',
-    userId: 'user-123',
-    datasetId: 'intake-by-institutions',
-    analysisType: 'Trend Analysis',
-    params: { institutions: ['nus', 'ntu'], yearFrom: 2015, yearTo: 2023 },
-    status: 'SUCCEEDED',
-    createdAt: '2026-01-20T10:30:00Z',
-    updatedAt: '2026-01-20T10:32:00Z',
-    result: { s3Bucket: 'results-bucket', s3Key: 'job-001/result.json' },
-  },
-  {
-    jobId: 'job-002',
-    userId: 'user-123',
-    datasetId: 'intake-by-institutions',
-    analysisType: 'Institution Comparison',
-    params: { institutions: ['singapore_polytechnic', 'ngee_ann_polytechnic'], year: 2022 },
-    status: 'RUNNING',
-    createdAt: '2026-01-21T09:15:00Z',
-    updatedAt: '2026-01-21T09:15:30Z',
-  },
-  {
-    jobId: 'job-003',
-    userId: 'user-123',
-    datasetId: 'intake-by-institutions',
-    analysisType: 'Trend Analysis',
-    params: { institutions: ['sit'], yearFrom: 2010, yearTo: 2020 },
-    status: 'QUEUED',
-    createdAt: '2026-01-21T11:00:00Z',
-    updatedAt: '2026-01-21T11:00:00Z',
-  },
-  {
-    jobId: 'job-004',
-    userId: 'user-123',
-    datasetId: 'intake-by-institutions',
-    analysisType: 'Institution Comparison',
-    params: { institutions: ['nus', 'smu'], year: 2019 },
-    status: 'FAILED',
-    createdAt: '2026-01-19T14:20:00Z',
-    updatedAt: '2026-01-19T14:22:00Z',
-    error: 'Insufficient data for the selected parameters',
-  },
-];
-
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobs, setJobs] = useState<ApiJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,12 +57,11 @@ export const Dashboard: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await jobsApi.getJobs();
+      const data = await intakeApi.getJobs(20); // Get last 20 jobs
       setJobs(data);
     } catch (err) {
-      console.warn('API not available, using mock data');
-      // Use mock data when API is not available
-      setJobs(MOCK_JOBS);
+      console.error('Failed to fetch jobs:', err);
+      setError('Failed to load jobs from the server.');
     } finally {
       setIsLoading(false);
     }
@@ -118,12 +71,12 @@ export const Dashboard: React.FC = () => {
     fetchJobs();
   }, []);
 
-  const columns: Column<Job>[] = [
+  const columns: Column<ApiJob>[] = [
     {
       key: 'jobId',
       header: 'Job ID',
       render: (value) => (
-        <span className="font-mono text-sm text-gray-600">{value}</span>
+        <span className="font-mono text-sm text-gray-600">{String(value).slice(0, 8)}...</span>
       ),
     },
     {

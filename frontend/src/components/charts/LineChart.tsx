@@ -38,6 +38,7 @@ export interface LineChartSeries {
   color?: string;
   strokeWidth?: number;
   dot?: boolean;
+  strokeDasharray?: string;
 }
 
 interface LineChartProps {
@@ -74,29 +75,59 @@ export const LineChart: React.FC<LineChartProps> = ({
   }: TooltipProps<number, string>) => {
     if (!active || !payload || payload.length === 0) return null;
 
+    // Sort payload by value (descending) for better readability
+    const sortedPayload = [...payload].sort((a, b) => 
+      ((b.value as number) || 0) - ((a.value as number) || 0)
+    );
+
+    // Check if any items are forecasts (based on dataKey containing '_forecast')
+    const hasForecast = sortedPayload.some(entry => 
+      String(entry.dataKey).includes('_forecast')
+    );
+
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
-        <p className="font-medium text-gray-900 mb-2">
-          {formatXAxis ? formatXAxis(label) : label}
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 min-w-[180px]">
+        <p className="font-semibold text-gray-900 mb-2 pb-2 border-b border-gray-100">
+          {formatXAxis ? formatXAxis(label) : `Year: ${label}`}
         </p>
-        {payload.map((entry, index) => (
-          <div
-            key={index}
-            className="flex items-center gap-2 text-sm"
-            style={{ color: entry.color }}
-          >
-            <span
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span className="text-gray-600">{entry.name}:</span>
-            <span className="font-medium">
-              {formatTooltip
-                ? formatTooltip(entry.value as number)
-                : entry.value?.toLocaleString() ?? 'N/A'}
-            </span>
-          </div>
-        ))}
+        <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+          {sortedPayload.map((entry, index) => {
+            const isForecast = String(entry.dataKey).includes('_forecast');
+            return (
+              <div
+                key={index}
+                className={`flex items-center justify-between gap-3 text-sm ${
+                  isForecast ? 'opacity-75' : ''
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                      isForecast ? 'border-2 border-current bg-transparent' : ''
+                    }`}
+                    style={{ 
+                      backgroundColor: isForecast ? 'transparent' : entry.color,
+                      borderColor: entry.color 
+                    }}
+                  />
+                  <span className="text-gray-600 truncate max-w-[120px]">
+                    {entry.name}
+                  </span>
+                </div>
+                <span className="font-medium text-gray-900">
+                  {formatTooltip
+                    ? formatTooltip(entry.value as number)
+                    : entry.value?.toLocaleString() ?? 'N/A'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {hasForecast && (
+          <p className="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 italic">
+            ○ Forecast values (projected)
+          </p>
+        )}
       </div>
     );
   };
@@ -156,8 +187,9 @@ export const LineChart: React.FC<LineChartProps> = ({
             name={s.name}
             stroke={s.color || COLORS[index % COLORS.length]}
             strokeWidth={s.strokeWidth || 2}
+            strokeDasharray={s.strokeDasharray}
             dot={s.dot !== false ? { r: 3 } : false}
-            activeDot={{ r: 5 }}
+            activeDot={{ r: 6, strokeWidth: 2 }}
             connectNulls={false}
           />
         ))}

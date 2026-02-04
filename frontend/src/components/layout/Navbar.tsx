@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   BarChart3,
@@ -35,12 +35,19 @@ const navItems: NavItem[] = [
 
 export const Navbar: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   // Mock user for dev mode
   const user = DEV_MODE ? { signInDetails: { loginId: 'dev@example.com' } } : null;
-  const signOut = () => console.log('Sign out clicked');
+  
+  const signOut = () => {
+    // In dev mode, navigate to login page
+    // In production, this would call the actual sign out from AWS Amplify
+    console.log('Signing out...');
+    navigate('/login');
+  };
 
   const isActiveRoute = (path: string) => {
     if (path === '/') {
