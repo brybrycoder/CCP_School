@@ -136,12 +136,12 @@ const pollJobResult = async (jobId: string, maxAttempts = 30, initialDelay = 500
 const submitAndWaitForResult = async (
   datasetId: string,
   analysisType: string,
-  filters: Record<string, unknown>
+  params: Record<string, unknown>
 ): Promise<JobResult> => {
   const response = await apiClient.post<JobSubmitResponse>('/api/v1/jobs', {
     datasetId,
     analysisType,
-    filters,
+    params,
   });
   
   return pollJobResult(response.data.jobId);
@@ -216,11 +216,11 @@ export const intakeApi = {
    * Get gender comparison data (Male vs Female trends over time)
    */
   getGenderComparison: async (institutions?: string[]): Promise<JobResult> => {
-    const filters: Record<string, unknown> = { compare_by: 'sex' };
+    const params: Record<string, unknown> = { sexes: ['F', 'M'] };
     if (institutions && institutions.length > 0) {
-      filters.institutions = institutions;
+      params.institutions = institutions;
     }
-    return submitAndWaitForResult('intake_by_institutions', 'gender_comparison', filters);
+    return submitAndWaitForResult('intake_by_institutions', 'gender_comparative', params);
   },
 
   /**
