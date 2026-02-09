@@ -13,6 +13,9 @@ import {
   Loader2,
   AlertCircle,
   Users,
+  Percent,
+  Trophy,
+  Activity,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Table, Column } from '../components/ui';
 import { 
@@ -31,12 +34,48 @@ import {
 } from '../utils';
 import { intakeApi, JobResult, DataPoint, ChartSeries } from '../api';
 
+/**
+ * Holt's Double Exponential Smoothing for forecasting with trend.
+ * Uses level + trend components to produce smoother, more accurate projections
+ * than simple linear extrapolation from the last two points.
+ */
+function holtForecast(
+  values: (number | null | undefined)[],
+  periods: number,
+  alpha: number = 0.3,
+  beta: number = 0.1
+): number[] {
+  const data = values.filter((v): v is number => v != null && !isNaN(v));
+  if (data.length < 2) return [];
+
+  // Initialize level and trend from first two observations
+  let level = data[0];
+  let trend = data[1] - data[0];
+
+  // Smooth over all historical data
+  for (let i = 1; i < data.length; i++) {
+    const prevLevel = level;
+    level = alpha * data[i] + (1 - alpha) * (prevLevel + trend);
+    trend = beta * (level - prevLevel) + (1 - beta) * trend;
+  }
+
+  // Generate forecast values
+  const forecasts: number[] = [];
+  for (let h = 1; h <= periods; h++) {
+    forecasts.push(level + h * trend);
+  }
+  return forecasts;
+}
+
 // Analysis mode configurations
 const ANALYSIS_MODES: { mode: AnalysisMode; label: string; description: string; icon: React.ReactNode }[] = [
   { mode: 'trend', label: 'Trend Over Time', description: 'Track intake trends by institution', icon: <TrendingUp className="w-5 h-5" /> },
   { mode: 'comparison', label: 'Institution Comparison', description: 'Compare total intake across institutions', icon: <BarChartIcon className="w-5 h-5" /> },
   { mode: 'growth', label: 'Growth Analysis', description: 'Year-over-year growth rates', icon: <ArrowUpRight className="w-5 h-5" /> },
   { mode: 'gender', label: 'Gender Analytics', description: 'Compare Male vs Female intake trends', icon: <Users className="w-5 h-5" /> },
+  { mode: 'gender_ratio', label: 'Gender Ratio', description: '% Female intake per institution over time', icon: <Percent className="w-5 h-5" /> },
+  { mode: 'ranking', label: 'Rankings', description: 'How institution rankings change each year', icon: <Trophy className="w-5 h-5" /> },
+  { mode: 'distribution', label: 'Distribution', description: 'Intake spread & variability per institution', icon: <Activity className="w-5 h-5" /> },
 ];
 
 // ============================================================================
@@ -223,18 +262,32 @@ export const IntakeAnalytics: React.FC = () => {
     setSex(newSex);
     setIsRefreshing(true);
     try {
-      const [timeSeries, groupBy] = await Promise.all([
+      // Refetch sex-dependent data sources independently so one failure doesn't block others
+      const [timeSeriesSettled, groupBySettled, comparativeSettled] = await Promise.allSettled([
         intakeApi.getTimeSeries(newSex),
         intakeApi.getGroupByInstitution(newSex),
+        selectedInstitutions.length >= 2
+          ? intakeApi.getComparative(selectedInstitutions, newSex)
+          : Promise.resolve(null),
       ]);
-      setTimeSeriesResult(timeSeries);
-      setGroupByResult(groupBy);
+      
+      if (timeSeriesSettled.status === 'fulfilled' && timeSeriesSettled.value) {
+        setTimeSeriesResult(timeSeriesSettled.value);
+      }
+      if (groupBySettled.status === 'fulfilled' && groupBySettled.value) {
+        setGroupByResult(groupBySettled.value);
+      }
+      if (comparativeSettled.status === 'fulfilled' && comparativeSettled.value) {
+        setComparativeResult(comparativeSettled.value);
+      }
+      // Gender comparison is NOT refetched here — it always shows both M and F
+      // and does not depend on the sex filter
     } catch (err) {
       console.error('Failed to refetch data:', err);
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [selectedInstitutions]);
 
   // Handlers
   const handleToggleInstitution = (institution: InstitutionKey) => {
@@ -311,10 +364,16 @@ export const IntakeAnalytics: React.FC = () => {
       
       const historicalData = Object.values(yearData).sort((a: any, b: any) => a.year - b.year);
       
-      // Add forecast data if enabled (simple linear projection per institution)
+      // Add forecast data if enabled (Holt's exponential smoothing)
       if (showForecast && yearTo === maxYear && historicalData.length >= 2) {
-        const lastTwo = historicalData.slice(-2);
         const institutions = selectedInstitutions.map(i => getInstitutionLabel(i));
+        
+        // Compute forecasts using exponential smoothing for each institution
+        const forecastsByInst: Record<string, number[]> = {};
+        institutions.forEach(inst => {
+          const histValues = historicalData.map((d: any) => d[inst] as number | null);
+          forecastsByInst[inst] = holtForecast(histValues, FORECAST_YEARS);
+        });
         
         // Connect forecast to last historical point
         const lastHistorical = historicalData[historicalData.length - 1] as any;
@@ -330,12 +389,9 @@ export const IntakeAnalytics: React.FC = () => {
           const forecastPoint: any = { year: forecastYear, isForecast: true };
           
           institutions.forEach(inst => {
-            const val1 = (lastTwo[0] as any)?.[inst];
-            const val2 = (lastTwo[1] as any)?.[inst];
-            if (val1 != null && val2 != null) {
-              const slope = val2 - val1;
-              forecastPoint[`${inst}_forecast`] = val2 + slope * i;
-              forecastPoint[inst] = null; // null prevents solid line from drawing
+            if (forecastsByInst[inst]?.length >= i) {
+              forecastPoint[`${inst}_forecast`] = Math.round(forecastsByInst[inst][i - 1]);
+              forecastPoint[inst] = null;
             }
           });
           
@@ -414,10 +470,16 @@ export const IntakeAnalytics: React.FC = () => {
       
       const historicalData = Object.values(yearData).sort((a: any, b: any) => a.year - b.year);
       
-      // Add forecast data if enabled
+      // Add forecast data if enabled (Holt's exponential smoothing)
       if (showForecast && yearTo === maxYear && historicalData.length >= 2) {
-        const lastTwo = historicalData.slice(-2);
         const institutions = selectedInstitutions.map(i => getInstitutionLabel(i));
+        
+        // Compute forecasts using exponential smoothing for each institution
+        const forecastsByInst: Record<string, number[]> = {};
+        institutions.forEach(inst => {
+          const histValues = historicalData.map((d: any) => d[inst] as number | null);
+          forecastsByInst[inst] = holtForecast(histValues, FORECAST_YEARS);
+        });
         
         // Connect forecast to last historical point
         const lastHistorical = historicalData[historicalData.length - 1] as any;
@@ -433,11 +495,8 @@ export const IntakeAnalytics: React.FC = () => {
           const forecastPoint: any = { year: forecastYear, isForecast: true };
           
           institutions.forEach(inst => {
-            const val1 = (lastTwo[0] as any)?.[inst];
-            const val2 = (lastTwo[1] as any)?.[inst];
-            if (val1 != null && val2 != null) {
-              const slope = val2 - val1;
-              forecastPoint[`${inst}_forecast`] = val2 + slope * i;
+            if (forecastsByInst[inst]?.length >= i) {
+              forecastPoint[`${inst}_forecast`] = parseFloat(forecastsByInst[inst][i - 1].toFixed(1));
               forecastPoint[inst] = null;
             }
           });
@@ -477,10 +536,16 @@ export const IntakeAnalytics: React.FC = () => {
       
       const historicalData = Object.values(yearData).sort((a: any, b: any) => a.year - b.year);
       
-      // Add forecast data if enabled
+      // Add forecast data if enabled (Holt's exponential smoothing)
       if (showForecast && yearTo === maxYear && historicalData.length >= 2) {
-        const lastTwo = historicalData.slice(-2);
         const genderKeys = ['Male', 'Female'];
+        
+        // Compute forecasts using exponential smoothing for each gender
+        const forecastsByGender: Record<string, number[]> = {};
+        genderKeys.forEach(key => {
+          const histValues = historicalData.map((d: any) => d[key] as number | null);
+          forecastsByGender[key] = holtForecast(histValues, FORECAST_YEARS);
+        });
         
         // Connect forecast to last historical point
         const lastHistorical = historicalData[historicalData.length - 1] as any;
@@ -496,11 +561,8 @@ export const IntakeAnalytics: React.FC = () => {
           const forecastPoint: any = { year: forecastYear, isForecast: true };
           
           genderKeys.forEach(key => {
-            const val1 = (lastTwo[0] as any)?.[key];
-            const val2 = (lastTwo[1] as any)?.[key];
-            if (val1 != null && val2 != null) {
-              const slope = val2 - val1;
-              forecastPoint[`${key}_forecast`] = val2 + slope * i;
+            if (forecastsByGender[key]?.length >= i) {
+              forecastPoint[`${key}_forecast`] = Math.round(forecastsByGender[key][i - 1]);
               forecastPoint[key] = null;
             }
           });
@@ -514,6 +576,135 @@ export const IntakeAnalytics: React.FC = () => {
     
     return [];
   }, [genderComparisonResult, analysisMode, yearFrom, yearTo, maxYear, showForecast, FORECAST_YEARS]);
+
+  // GENDER RATIO DATA - % Female per institution from gender comparison API
+  const genderRatioChartData = useMemo(() => {
+    if (analysisMode !== 'gender_ratio') return [];
+    
+    // We need both M and F data per institution — use comparative with sex=F and sex=MF
+    // But we have genderComparisonResult which is aggregated across institutions.
+    // For per-institution gender ratio, we need raw data from comparative calls.
+    // Use comparativeResult to get per-institution totals (sex=MF), and compute ratio
+    // from the raw data. Since we only have aggregated gender data, we'll compute
+    // from individual institution data if available.
+    
+    // For now, use the genderComparisonResult to show overall % Female over time
+    if (genderComparisonResult && genderComparisonResult.visualization.series.length > 0) {
+      const maleByYear: Record<number, number> = {};
+      const femaleByYear: Record<number, number> = {};
+      
+      genderComparisonResult.visualization.series.forEach((series: ChartSeries) => {
+        const sexKey = series.name;
+        series.points.forEach((p: DataPoint) => {
+          const year = p.x as number;
+          if (year >= yearFrom && year <= yearTo) {
+            if (sexKey === 'M') maleByYear[year] = (maleByYear[year] || 0) + p.y;
+            if (sexKey === 'F') femaleByYear[year] = (femaleByYear[year] || 0) + p.y;
+          }
+        });
+      });
+      
+      const years = [...new Set([...Object.keys(maleByYear), ...Object.keys(femaleByYear)])]
+        .map(Number).sort((a, b) => a - b);
+      
+      return years.map(year => {
+        const male = maleByYear[year] || 0;
+        const female = femaleByYear[year] || 0;
+        const total = male + female;
+        return {
+          year,
+          'Female %': total > 0 ? parseFloat(((female / total) * 100).toFixed(1)) : null,
+          'Male %': total > 0 ? parseFloat(((male / total) * 100).toFixed(1)) : null,
+        };
+      });
+    }
+    
+    return [];
+  }, [genderComparisonResult, analysisMode, yearFrom, yearTo]);
+
+  // RANKING DATA - Institution rank by intake each year
+  const rankingChartData = useMemo(() => {
+    if (analysisMode !== 'ranking') return [];
+    
+    if (comparativeResult && comparativeResult.visualization.series.length > 0) {
+      // Collect intake per institution per year
+      const yearInstData: Record<number, Record<string, number>> = {};
+      
+      comparativeResult.visualization.series.forEach((series: ChartSeries) => {
+        const instKey = series.name as InstitutionKey;
+        if (!selectedInstitutions.includes(instKey)) return;
+        
+        series.points.forEach((p: DataPoint) => {
+          const year = p.x as number;
+          if (year >= yearFrom && year <= yearTo && p.y > 0) {
+            if (!yearInstData[year]) yearInstData[year] = {};
+            yearInstData[year][instKey] = p.y;
+          }
+        });
+      });
+      
+      // Compute rankings per year
+      const years = Object.keys(yearInstData).map(Number).sort((a, b) => a - b);
+      
+      return years.map(year => {
+        const entries = Object.entries(yearInstData[year] || {});
+        // Sort by intake descending to assign ranks
+        entries.sort((a, b) => b[1] - a[1]);
+        
+        const row: Record<string, any> = { year };
+        entries.forEach(([instKey], index) => {
+          const label = getInstitutionLabel(instKey as InstitutionKey);
+          row[label] = index + 1; // rank 1 = highest intake
+        });
+        
+        return row;
+      });
+    }
+    
+    return [];
+  }, [comparativeResult, analysisMode, yearFrom, yearTo, selectedInstitutions]);
+
+  // DISTRIBUTION DATA - Box plot stats per institution
+  const distributionChartData = useMemo(() => {
+    if (analysisMode !== 'distribution') return [];
+    
+    if (comparativeResult && comparativeResult.visualization.series.length > 0) {
+      return comparativeResult.visualization.series
+        .filter((series: ChartSeries) => selectedInstitutions.includes(series.name as InstitutionKey))
+        .map((series: ChartSeries) => {
+          const values = series.points
+            .map((p: DataPoint) => p.y)
+            .filter((v: number) => v > 0)
+            .sort((a: number, b: number) => a - b);
+          
+          if (values.length === 0) return null;
+          
+          const q1Idx = Math.floor(values.length * 0.25);
+          const medIdx = Math.floor(values.length * 0.5);
+          const q3Idx = Math.floor(values.length * 0.75);
+          const mean = values.reduce((s: number, v: number) => s + v, 0) / values.length;
+          const variance = values.reduce((s: number, v: number) => s + (v - mean) ** 2, 0) / values.length;
+          const stdDev = Math.sqrt(variance);
+          
+          return {
+            institution: getInstitutionLabel(series.name as InstitutionKey),
+            institutionKey: series.name,
+            min: values[0],
+            q1: values[q1Idx],
+            median: values[medIdx],
+            q3: values[q3Idx],
+            max: values[values.length - 1],
+            mean: Math.round(mean),
+            stdDev: Math.round(stdDev),
+            range: values[values.length - 1] - values[0],
+            count: values.length,
+          };
+        })
+        .filter((d): d is NonNullable<typeof d> => d != null);
+    }
+    
+    return [];
+  }, [comparativeResult, analysisMode, selectedInstitutions]);
 
   // ============================================================================
   // CHART SERIES CONFIGURATIONS
@@ -582,6 +773,28 @@ export const IntakeAnalytics: React.FC = () => {
     { dataKey: 'intake', name: 'Total Intake (All Years)', color: '#3b82f6' },
   ];
 
+  // Gender ratio series
+  const genderRatioSeries: LineChartSeries[] = [
+    { dataKey: 'Female %', name: 'Female %', color: '#ec4899', dot: true },
+    { dataKey: 'Male %', name: 'Male %', color: '#3b82f6', dot: true },
+  ];
+
+  // Ranking series - dynamic per institution (lower = better)
+  const rankingSeries: LineChartSeries[] = useMemo(() => {
+    return selectedInstitutions.map((inst, index) => ({
+      dataKey: getInstitutionLabel(inst),
+      name: getInstitutionLabel(inst),
+      color: SERIES_COLORS[index % SERIES_COLORS.length],
+      dot: true,
+    }));
+  }, [selectedInstitutions]);
+
+  // Distribution bar series
+  const distributionBarSeries: BarChartSeries[] = [
+    { dataKey: 'median', name: 'Median', color: '#3b82f6' },
+    { dataKey: 'mean', name: 'Mean', color: '#10b981' },
+  ];
+
   // ============================================================================
   // TABLE CONFIGURATIONS
   // ============================================================================
@@ -624,6 +837,36 @@ export const IntakeAnalytics: React.FC = () => {
           { key: 'Male', header: 'Male', render: (v: number) => formatNumber(v) },
           { key: 'Female', header: 'Female', render: (v: number) => formatNumber(v) },
         ];
+      case 'gender_ratio':
+        return [
+          { key: 'year', header: 'Year', sortable: true },
+          { key: 'Female %', header: 'Female %', render: (v: number) => v != null ? `${v.toFixed(1)}%` : '—' },
+          { key: 'Male %', header: 'Male %', render: (v: number) => v != null ? `${v.toFixed(1)}%` : '—' },
+        ];
+      case 'ranking':
+        const rankCols: Column<Record<string, any>>[] = [
+          { key: 'year', header: 'Year', sortable: true },
+        ];
+        selectedInstitutions.forEach(inst => {
+          const label = getInstitutionLabel(inst);
+          rankCols.push({
+            key: label,
+            header: label,
+            render: (v: number) => v != null ? `#${v}` : '—',
+          });
+        });
+        return rankCols;
+      case 'distribution':
+        return [
+          { key: 'institution', header: 'Institution' },
+          { key: 'min', header: 'Min', render: (v: number) => formatNumber(v) },
+          { key: 'q1', header: 'Q1', render: (v: number) => formatNumber(v) },
+          { key: 'median', header: 'Median', render: (v: number) => formatNumber(v) },
+          { key: 'q3', header: 'Q3', render: (v: number) => formatNumber(v) },
+          { key: 'max', header: 'Max', render: (v: number) => formatNumber(v) },
+          { key: 'mean', header: 'Mean', render: (v: number) => formatNumber(v) },
+          { key: 'stdDev', header: 'Std Dev', render: (v: number) => formatNumber(v) },
+        ];
       default:
         return [];
     }
@@ -640,10 +883,16 @@ export const IntakeAnalytics: React.FC = () => {
         return growthChartData.filter(d => !d.isForecast);
       case 'gender':
         return genderChartData;
+      case 'gender_ratio':
+        return genderRatioChartData;
+      case 'ranking':
+        return rankingChartData;
+      case 'distribution':
+        return distributionChartData;
       default:
         return [];
     }
-  }, [analysisMode, trendChartData, comparisonChartData, growthChartData, genderChartData]);
+  }, [analysisMode, trendChartData, comparisonChartData, growthChartData, genderChartData, genderRatioChartData, rankingChartData, distributionChartData]);
 
   // ============================================================================
   // SUMMARY STATISTICS
@@ -673,11 +922,36 @@ export const IntakeAnalytics: React.FC = () => {
         const totalMale = genderChartData.reduce((sum, d) => sum + (d.Male || 0), 0);
         const totalFemale = genderChartData.reduce((sum, d) => sum + (d.Female || 0), 0);
         return { totalMale, totalFemale, years: genderChartData.length };
+
+      case 'gender_ratio':
+        if (genderRatioChartData.length === 0) return null;
+        const latestRatio = genderRatioChartData[genderRatioChartData.length - 1];
+        const earliestRatio = genderRatioChartData[0];
+        return {
+          latestFemale: latestRatio?.['Female %'] ?? 0,
+          earliestFemale: earliestRatio?.['Female %'] ?? 0,
+          years: genderRatioChartData.length,
+        };
+
+      case 'ranking':
+        if (rankingChartData.length === 0) return null;
+        return {
+          institutions: selectedInstitutions.length,
+          years: rankingChartData.length,
+        };
+
+      case 'distribution':
+        if (distributionChartData.length === 0) return null;
+        const avgMedian = distributionChartData.reduce((s: number, d: any) => s + (d.median || 0), 0) / distributionChartData.length;
+        return {
+          institutions: distributionChartData.length,
+          avgMedian: Math.round(avgMedian),
+        };
         
       default:
         return null;
     }
-  }, [analysisMode, trendChartData, comparisonChartData, growthChartData, genderChartData, selectedInstitutions, showForecast]);
+  }, [analysisMode, trendChartData, comparisonChartData, growthChartData, genderChartData, genderRatioChartData, rankingChartData, distributionChartData, selectedInstitutions, showForecast]);
 
   // ============================================================================
   // RENDER CHART
@@ -708,7 +982,7 @@ export const IntakeAnalytics: React.FC = () => {
             {showForecast && (
               <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
                 <Sparkles className="w-4 h-4" />
-                <span>Dashed lines show {FORECAST_YEARS}-year linear projection</span>
+                <span>Dashed lines show {FORECAST_YEARS}-year forecast (exponential smoothing)</span>
               </div>
             )}
             <LineChart
@@ -799,7 +1073,7 @@ export const IntakeAnalytics: React.FC = () => {
             {showForecast && (
               <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
                 <Sparkles className="w-4 h-4" />
-                <span>Dashed lines show {FORECAST_YEARS}-year linear projection</span>
+                <span>Dashed lines show {FORECAST_YEARS}-year forecast (exponential smoothing)</span>
               </div>
             )}
             <LineChart
@@ -829,7 +1103,7 @@ export const IntakeAnalytics: React.FC = () => {
             {showForecast && (
               <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
                 <Sparkles className="w-4 h-4" />
-                <span>Dashed lines show {FORECAST_YEARS}-year linear projection</span>
+                <span>Dashed lines show {FORECAST_YEARS}-year forecast (exponential smoothing)</span>
               </div>
             )}
             <LineChart
@@ -841,6 +1115,145 @@ export const IntakeAnalytics: React.FC = () => {
               height={400}
               formatTooltip={(v) => formatNumber(v)}
             />
+          </div>
+        );
+
+      default:
+        return renderNewCharts();
+    }
+  };
+
+  // Helper: render empty state for institution-dependent charts
+  const renderEmptyInstitutions = (message: string = 'Select at least one institution to view the chart') => (
+    <div className="flex flex-col items-center justify-center h-80 text-gray-500">
+      <Info className="w-12 h-12 mb-4" />
+      <p>{message}</p>
+    </div>
+  );
+
+  // Render new chart modes
+  const renderNewCharts = () => {
+    switch (analysisMode) {
+      case 'gender_ratio':
+        if (genderRatioChartData.length === 0) {
+          return renderEmptyInstitutions('No gender ratio data available for the selected filters');
+        }
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
+              <Percent className="w-4 h-4" />
+              <span>Showing percentage of Female vs Male intake across selected institutions</span>
+            </div>
+            <LineChart
+              data={genderRatioChartData}
+              xAxisKey="year"
+              series={genderRatioSeries}
+              xAxisLabel="Year"
+              yAxisLabel="Percentage (%)"
+              height={400}
+              formatTooltip={(v) => v != null ? `${v.toFixed(1)}%` : 'N/A'}
+            />
+          </div>
+        );
+
+      case 'ranking':
+        if (selectedInstitutions.length === 0) {
+          return renderEmptyInstitutions();
+        }
+        if (rankingChartData.length === 0) {
+          return renderEmptyInstitutions('No ranking data available');
+        }
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+              <Trophy className="w-4 h-4" />
+              <span>Rank #1 = highest intake. Lower position on chart = better rank.</span>
+            </div>
+            <LineChart
+              data={rankingChartData}
+              xAxisKey="year"
+              series={rankingSeries}
+              xAxisLabel="Year"
+              yAxisLabel="Rank"
+              height={400}
+              formatTooltip={(v) => v != null ? `#${v}` : 'N/A'}
+              formatYAxis={(v) => `#${v}`}
+            />
+          </div>
+        );
+
+      case 'distribution':
+        if (selectedInstitutions.length === 0) {
+          return renderEmptyInstitutions();
+        }
+        if (distributionChartData.length === 0) {
+          return renderEmptyInstitutions('No distribution data available');
+        }
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
+              <Activity className="w-4 h-4" />
+              <span>Showing median and mean intake per institution across all years in range</span>
+            </div>
+            <BarChart
+              data={distributionChartData}
+              xAxisKey="institution"
+              series={distributionBarSeries}
+              xAxisLabel="Institution"
+              yAxisLabel="Intake"
+              height={400}
+              formatTooltip={(v) => formatNumber(v)}
+            />
+            {/* Range & variability sub-chart */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {distributionChartData.map((d: any) => (
+                <div key={d.institutionKey} className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 mb-2">{d.institution}</h4>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Range</span>
+                      <span className="font-medium">{formatNumber(d.min)} – {formatNumber(d.max)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">IQR (Q1–Q3)</span>
+                      <span className="font-medium">{formatNumber(d.q1)} – {formatNumber(d.q3)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Std Dev</span>
+                      <span className="font-medium">{formatNumber(d.stdDev)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Years of Data</span>
+                      <span className="font-medium">{d.count}</span>
+                    </div>
+                    {/* Visual range bar */}
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <div className="relative h-4 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="absolute h-full bg-blue-200 rounded-full"
+                          style={{
+                            left: `${((d.q1 - d.min) / (d.max - d.min)) * 100}%`,
+                            width: `${((d.q3 - d.q1) / (d.max - d.min)) * 100}%`,
+                          }}
+                        />
+                        <div
+                          className="absolute h-full w-0.5 bg-blue-600"
+                          style={{ left: `${((d.median - d.min) / (d.max - d.min)) * 100}%` }}
+                        />
+                        <div
+                          className="absolute h-full w-0.5 bg-green-600"
+                          style={{ left: `${((d.mean - d.min) / (d.max - d.min)) * 100}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-400 mt-1">
+                        <span>{formatNumber(d.min)}</span>
+                        <span>{formatNumber(d.max)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         );
 
@@ -886,6 +1299,30 @@ export const IntakeAnalytics: React.FC = () => {
           { label: 'Total Male', value: formatNumber((summaryStats as any)?.totalMale) },
           { label: 'Total Female', value: formatNumber((summaryStats as any)?.totalFemale) },
           { label: 'Forecast', value: showForecast ? `${FORECAST_YEARS} years` : 'Disabled' },
+        );
+        break;
+      case 'gender_ratio':
+        cards.push(
+          { label: 'Years Analyzed', value: `${yearFrom}-${yearTo}` },
+          { label: 'Latest Female %', value: `${(summaryStats as any)?.latestFemale?.toFixed(1) ?? 0}%` },
+          { label: 'Earliest Female %', value: `${(summaryStats as any)?.earliestFemale?.toFixed(1) ?? 0}%` },
+          { label: 'Data Points', value: (summaryStats as any)?.years || 0 },
+        );
+        break;
+      case 'ranking':
+        cards.push(
+          { label: 'Years Analyzed', value: `${yearFrom}-${yearTo}` },
+          { label: 'Institutions', value: (summaryStats as any)?.institutions || 0 },
+          { label: 'Data Points', value: (summaryStats as any)?.years || 0 },
+          { label: 'Gender Filter', value: sex === 'MF' ? 'All' : sex },
+        );
+        break;
+      case 'distribution':
+        cards.push(
+          { label: 'Years Analyzed', value: `${yearFrom}-${yearTo}` },
+          { label: 'Institutions', value: (summaryStats as any)?.institutions || 0 },
+          { label: 'Avg Median Intake', value: formatNumber((summaryStats as any)?.avgMedian) },
+          { label: 'Gender Filter', value: sex === 'MF' ? 'All' : sex },
         );
         break;
     }

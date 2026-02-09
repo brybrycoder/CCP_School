@@ -47,6 +47,9 @@ export type AnalysisMode =
   | 'comparison' 
   | 'growth' 
   | 'gender'
+  | 'gender_ratio'
+  | 'ranking'
+  | 'distribution'
   | 'gender_distribution' 
   | 'sector_comparison';
 
