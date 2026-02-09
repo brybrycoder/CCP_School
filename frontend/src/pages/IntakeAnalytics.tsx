@@ -271,7 +271,7 @@ export const IntakeAnalytics: React.FC = () => {
   const needsGenderFilter = true; // All modes support gender filter
   // All modes now support institution filtering
   const needsInstitutionFilter = true;
-  const needsForecastOption = analysisMode === 'trend' && yearTo === maxYear;
+  const needsForecastOption = (analysisMode === 'trend' || analysisMode === 'growth' || analysisMode === 'gender') && yearTo === maxYear;
 
   // Auto-disable forecast when yearTo is not the latest year
   useEffect(() => {
@@ -303,7 +303,7 @@ export const IntakeAnalytics: React.FC = () => {
                 yearData[year] = { year, isForecast: false };
               }
               const label = getInstitutionLabel(instKey);
-              yearData[year][label] = p.y;
+              yearData[year][label] = p.y > 0 ? p.y : null;
             }
           });
         }
@@ -319,7 +319,7 @@ export const IntakeAnalytics: React.FC = () => {
         // Connect forecast to last historical point
         const lastHistorical = historicalData[historicalData.length - 1] as any;
         institutions.forEach(inst => {
-          if (lastHistorical[inst] !== undefined) {
+          if (lastHistorical[inst] != null) {
             lastHistorical[`${inst}_forecast`] = lastHistorical[inst];
           }
         });
@@ -332,7 +332,7 @@ export const IntakeAnalytics: React.FC = () => {
           institutions.forEach(inst => {
             const val1 = (lastTwo[0] as any)?.[inst];
             const val2 = (lastTwo[1] as any)?.[inst];
-            if (val1 !== undefined && val2 !== undefined) {
+            if (val1 != null && val2 != null) {
               const slope = val2 - val1;
               forecastPoint[`${inst}_forecast`] = val2 + slope * i;
               forecastPoint[inst] = null; // null prevents solid line from drawing
@@ -378,35 +378,79 @@ export const IntakeAnalytics: React.FC = () => {
       .sort((a, b) => b.intake - a.intake);
   }, [groupByResult, analysisMode, selectedInstitutions]);
 
-  // GROWTH ANALYSIS DATA - Calculated from time series
+  // GROWTH ANALYSIS DATA - Per institution from comparative API
   const growthChartData = useMemo(() => {
-    if (analysisMode !== 'growth' || !timeSeriesResult) return [];
+    if (analysisMode !== 'growth') return [];
     
-    const points = timeSeriesResult.visualization.series[0]?.points || [];
-    const filteredPoints = points.filter((p: DataPoint) => {
-      const year = p.x as number;
-      return year >= yearFrom - 1 && year <= yearTo;
-    });
-    
-    const growthData: Record<string, any>[] = [];
-    
-    for (let i = 1; i < filteredPoints.length; i++) {
-      const curr = filteredPoints[i];
-      const prev = filteredPoints[i - 1];
-      const year = curr.x as number;
+    // Use comparative result for per-institution growth
+    if (comparativeResult && comparativeResult.visualization.series.length > 0) {
+      const yearData: Record<number, any> = {};
       
-      if (year >= yearFrom) {
-        const growth = prev.y !== 0 ? ((curr.y - prev.y) / prev.y) * 100 : 0;
-        growthData.push({
-          year,
-          growth: growth,
-          isForecast: false,
+      comparativeResult.visualization.series.forEach((series: ChartSeries) => {
+        const instKey = series.name as InstitutionKey;
+        if (!selectedInstitutions.includes(instKey)) return;
+        
+        const label = getInstitutionLabel(instKey);
+        // Sort points by year
+        const sortedPoints = [...series.points].sort((a, b) => (a.x as number) - (b.x as number));
+        
+        for (let i = 1; i < sortedPoints.length; i++) {
+          const curr = sortedPoints[i];
+          const prev = sortedPoints[i - 1];
+          const year = curr.x as number;
+          const prevYear = prev.x as number;
+          
+          if (year >= yearFrom && year <= yearTo && prevYear === year - 1) {
+            if (!yearData[year]) {
+              yearData[year] = { year, isForecast: false };
+            }
+            const growth = prev.y !== 0 ? ((curr.y - prev.y) / prev.y) * 100 : null;
+            yearData[year][label] = growth;
+          } else if (year >= yearFrom && year <= yearTo && !yearData[year]) {
+            yearData[year] = { year, isForecast: false };
+          }
+        }
+      });
+      
+      const historicalData = Object.values(yearData).sort((a: any, b: any) => a.year - b.year);
+      
+      // Add forecast data if enabled
+      if (showForecast && yearTo === maxYear && historicalData.length >= 2) {
+        const lastTwo = historicalData.slice(-2);
+        const institutions = selectedInstitutions.map(i => getInstitutionLabel(i));
+        
+        // Connect forecast to last historical point
+        const lastHistorical = historicalData[historicalData.length - 1] as any;
+        institutions.forEach(inst => {
+          if (lastHistorical[inst] !== undefined && lastHistorical[inst] !== null) {
+            lastHistorical[`${inst}_forecast`] = lastHistorical[inst];
+          }
         });
+        
+        // Project forward
+        for (let i = 1; i <= FORECAST_YEARS; i++) {
+          const forecastYear = maxYear + i;
+          const forecastPoint: any = { year: forecastYear, isForecast: true };
+          
+          institutions.forEach(inst => {
+            const val1 = (lastTwo[0] as any)?.[inst];
+            const val2 = (lastTwo[1] as any)?.[inst];
+            if (val1 != null && val2 != null) {
+              const slope = val2 - val1;
+              forecastPoint[`${inst}_forecast`] = val2 + slope * i;
+              forecastPoint[inst] = null;
+            }
+          });
+          
+          historicalData.push(forecastPoint);
+        }
       }
+      
+      return historicalData;
     }
     
-    return growthData;
-  }, [timeSeriesResult, analysisMode, yearFrom, yearTo]);
+    return [];
+  }, [comparativeResult, analysisMode, yearFrom, yearTo, maxYear, showForecast, selectedInstitutions, FORECAST_YEARS]);
 
   // GENDER ANALYTICS DATA - From gender comparison API
   const genderChartData = useMemo(() => {
@@ -417,24 +461,59 @@ export const IntakeAnalytics: React.FC = () => {
       
       genderComparisonResult.visualization.series.forEach((series: ChartSeries) => {
         const sexKey = series.name; // 'M', 'F', or 'MF'
+        if (sexKey !== 'M' && sexKey !== 'F') return; // Only Male and Female
+        
         series.points.forEach((p: DataPoint) => {
           const year = p.x as number;
           if (year >= yearFrom && year <= yearTo) {
             if (!yearData[year]) {
-              yearData[year] = { year };
+              yearData[year] = { year, isForecast: false };
             }
-            // Use readable labels
-            const label = sexKey === 'M' ? 'Male' : sexKey === 'F' ? 'Female' : 'Total';
-            yearData[year][label] = p.y;
+            const label = sexKey === 'M' ? 'Male' : 'Female';
+            yearData[year][label] = p.y > 0 ? p.y : null;
           }
         });
       });
       
-      return Object.values(yearData).sort((a: any, b: any) => a.year - b.year);
+      const historicalData = Object.values(yearData).sort((a: any, b: any) => a.year - b.year);
+      
+      // Add forecast data if enabled
+      if (showForecast && yearTo === maxYear && historicalData.length >= 2) {
+        const lastTwo = historicalData.slice(-2);
+        const genderKeys = ['Male', 'Female'];
+        
+        // Connect forecast to last historical point
+        const lastHistorical = historicalData[historicalData.length - 1] as any;
+        genderKeys.forEach(key => {
+          if (lastHistorical[key] != null) {
+            lastHistorical[`${key}_forecast`] = lastHistorical[key];
+          }
+        });
+        
+        // Project forward
+        for (let i = 1; i <= FORECAST_YEARS; i++) {
+          const forecastYear = maxYear + i;
+          const forecastPoint: any = { year: forecastYear, isForecast: true };
+          
+          genderKeys.forEach(key => {
+            const val1 = (lastTwo[0] as any)?.[key];
+            const val2 = (lastTwo[1] as any)?.[key];
+            if (val1 != null && val2 != null) {
+              const slope = val2 - val1;
+              forecastPoint[`${key}_forecast`] = val2 + slope * i;
+              forecastPoint[key] = null;
+            }
+          });
+          
+          historicalData.push(forecastPoint);
+        }
+      }
+      
+      return historicalData;
     }
     
     return [];
-  }, [genderComparisonResult, analysisMode, yearFrom, yearTo]);
+  }, [genderComparisonResult, analysisMode, yearFrom, yearTo, maxYear, showForecast, FORECAST_YEARS]);
 
   // ============================================================================
   // CHART SERIES CONFIGURATIONS
@@ -465,15 +544,37 @@ export const IntakeAnalytics: React.FC = () => {
     }));
   }, [selectedInstitutions]);
 
-  // Growth series
-  const growthSeries: LineChartSeries[] = [
-    { dataKey: 'growth', name: 'Growth Rate', color: '#10b981', dot: true },
-  ];
+  // Growth series - dynamic per institution
+  const growthSeries: LineChartSeries[] = useMemo(() => {
+    return selectedInstitutions.map((inst, index) => ({
+      dataKey: getInstitutionLabel(inst),
+      name: getInstitutionLabel(inst),
+      color: SERIES_COLORS[index % SERIES_COLORS.length],
+      dot: true,
+    }));
+  }, [selectedInstitutions]);
+
+  // Growth forecast series (dashed lines)
+  const growthForecastSeries: LineChartSeries[] = useMemo(() => {
+    return selectedInstitutions.map((inst, index) => ({
+      dataKey: `${getInstitutionLabel(inst)}_forecast`,
+      name: `${getInstitutionLabel(inst)} (Forecast)`,
+      color: SERIES_COLORS[index % SERIES_COLORS.length],
+      strokeDasharray: '5 5',
+      dot: false,
+    }));
+  }, [selectedInstitutions]);
 
   // Gender series (Male vs Female)
   const genderSeries: LineChartSeries[] = [
     { dataKey: 'Male', name: 'Male', color: '#3b82f6', dot: true },
     { dataKey: 'Female', name: 'Female', color: '#ec4899', dot: true },
+  ];
+
+  // Gender forecast series (dashed lines)
+  const genderForecastSeries: LineChartSeries[] = [
+    { dataKey: 'Male_forecast', name: 'Male (Forecast)', color: '#3b82f6', strokeDasharray: '5 5', dot: false },
+    { dataKey: 'Female_forecast', name: 'Female (Forecast)', color: '#ec4899', strokeDasharray: '5 5', dot: false },
   ];
 
   // Bar series for comparison
@@ -505,10 +606,18 @@ export const IntakeAnalytics: React.FC = () => {
           { key: 'intake', header: 'Total Intake (All Years)', render: (v: number) => formatNumber(v) },
         ];
       case 'growth':
-        return [
+        const growthCols: Column<Record<string, any>>[] = [
           { key: 'year', header: 'Year', sortable: true },
-          { key: 'growth', header: 'Growth Rate', render: (v: number) => <GrowthIndicator value={v} /> },
         ];
+        selectedInstitutions.forEach(inst => {
+          const label = getInstitutionLabel(inst);
+          growthCols.push({
+            key: label,
+            header: label,
+            render: (v: number | null) => <GrowthIndicator value={v} />,
+          });
+        });
+        return growthCols;
       case 'gender':
         return [
           { key: 'year', header: 'Year', sortable: true },
@@ -556,8 +665,8 @@ export const IntakeAnalytics: React.FC = () => {
         
       case 'growth':
         if (growthChartData.length === 0) return null;
-        const avgGrowth = growthChartData.reduce((sum, d) => sum + d.growth, 0) / growthChartData.length;
-        return { avgGrowth, years: growthChartData.length };
+        const historicalGrowth = growthChartData.filter(d => !d.isForecast);
+        return { institutions: selectedInstitutions.length, years: historicalGrowth.length };
 
       case 'gender':
         if (genderChartData.length === 0) return null;
@@ -676,16 +785,33 @@ export const IntakeAnalytics: React.FC = () => {
         );
 
       case 'growth':
+        if (selectedInstitutions.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center h-80 text-gray-500">
+              <Info className="w-12 h-12 mb-4" />
+              <p>Select at least one institution to view growth rates</p>
+            </div>
+          );
+        }
+        const allGrowthSeries = showForecast ? [...growthSeries, ...growthForecastSeries] : growthSeries;
         return (
-          <LineChart
-            data={growthChartData}
-            xAxisKey="year"
-            series={growthSeries}
-            xAxisLabel="Year"
-            yAxisLabel="Growth Rate (%)"
-            height={400}
-            formatTooltip={(v) => `${v?.toFixed(1) ?? 'N/A'}%`}
-          />
+          <div className="space-y-4">
+            {showForecast && (
+              <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+                <Sparkles className="w-4 h-4" />
+                <span>Dashed lines show {FORECAST_YEARS}-year linear projection</span>
+              </div>
+            )}
+            <LineChart
+              data={growthChartData}
+              xAxisKey="year"
+              series={allGrowthSeries}
+              xAxisLabel="Year"
+              yAxisLabel="Growth Rate (%)"
+              height={400}
+              formatTooltip={(v) => v != null ? `${v.toFixed(1)}%` : 'N/A'}
+            />
+          </div>
         );
 
       case 'gender':
@@ -697,16 +823,25 @@ export const IntakeAnalytics: React.FC = () => {
             </div>
           );
         }
+        const allGenderSeries = showForecast ? [...genderSeries, ...genderForecastSeries] : genderSeries;
         return (
-          <LineChart
-            data={genderChartData}
-            xAxisKey="year"
-            series={genderSeries}
-            xAxisLabel="Year"
-            yAxisLabel="Student Intake"
-            height={400}
-            formatTooltip={(v) => formatNumber(v)}
-          />
+          <div className="space-y-4">
+            {showForecast && (
+              <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+                <Sparkles className="w-4 h-4" />
+                <span>Dashed lines show {FORECAST_YEARS}-year linear projection</span>
+              </div>
+            )}
+            <LineChart
+              data={genderChartData}
+              xAxisKey="year"
+              series={allGenderSeries}
+              xAxisLabel="Year"
+              yAxisLabel="Student Intake"
+              height={400}
+              formatTooltip={(v) => formatNumber(v)}
+            />
+          </div>
         );
 
       default:
@@ -740,9 +875,9 @@ export const IntakeAnalytics: React.FC = () => {
       case 'growth':
         cards.push(
           { label: 'Years Analyzed', value: `${yearFrom}-${yearTo}` },
+          { label: 'Institutions', value: (summaryStats as any)?.institutions || 0 },
           { label: 'Data Points', value: (summaryStats as any)?.years || 0 },
-          { label: 'Avg Growth', value: `${((summaryStats as any)?.avgGrowth || 0).toFixed(1)}%` },
-          { label: 'Gender Filter', value: sex === 'MF' ? 'All' : sex },
+          { label: 'Forecast', value: showForecast ? `${FORECAST_YEARS} years` : 'Disabled' },
         );
         break;
       case 'gender':
@@ -750,7 +885,7 @@ export const IntakeAnalytics: React.FC = () => {
           { label: 'Years Analyzed', value: `${yearFrom}-${yearTo}` },
           { label: 'Total Male', value: formatNumber((summaryStats as any)?.totalMale) },
           { label: 'Total Female', value: formatNumber((summaryStats as any)?.totalFemale) },
-          { label: 'Institutions', value: selectedInstitutions.length },
+          { label: 'Forecast', value: showForecast ? `${FORECAST_YEARS} years` : 'Disabled' },
         );
         break;
     }
