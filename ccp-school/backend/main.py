@@ -463,7 +463,7 @@ async def submit_job(payload: Dict[str, Any], background_tasks: BackgroundTasks)
 
 
 @app.get("/api/v1/jobs")
-async def get_jobs(limit: int = 20, cursor: Optional[str] = None) -> Dict[str, Any]:
+async def get_jobs(limit: int = 1000, cursor: Optional[str] = None) -> Dict[str, Any]:
     with _jobs_lock:
         jobs_list = list(_jobs.values())
 
