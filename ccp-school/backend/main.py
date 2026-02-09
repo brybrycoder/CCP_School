@@ -104,9 +104,16 @@ def to_long_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
     filtered = df.copy()
+    
+    # Handle single sex filter
     sex = filters.get("sex")
     if sex:
         filtered = filtered[filtered["sex"] == sex]
+    
+    # Handle multiple sexes filter (for gender comparison)
+    sexes = filters.get("sexes")
+    if sexes and isinstance(sexes, list):
+        filtered = filtered[filtered["sex"].isin(sexes)]
 
     year_from = filters.get("year_from") or filters.get("yearFrom")
     year_to = filters.get("year_to") or filters.get("yearTo")
@@ -245,6 +252,46 @@ def summarize_comparative(df: pd.DataFrame, institutions: List[str]) -> Dict[str
     }
 
 
+def summarize_gender_comparative(df: pd.DataFrame) -> Dict[str, Any]:
+    """Compare Male vs Female intake trends across selected institutions"""
+    # Group by year and sex, sum across all institutions
+    grouped = df.groupby(["year", "sex"], as_index=False)["intake"].sum()
+    
+    # Create separate series for M and F
+    series: List[Dict[str, Any]] = []
+    sexes = grouped["sex"].unique()
+    
+    for sex in ['M', 'F']:  # Ensure consistent order
+        if sex in sexes:
+            sex_rows = grouped[grouped["sex"] == sex].sort_values("year")
+            series.append({
+                "name": sex,
+                "points": [
+                    {"x": int(row["year"]), "y": float(row["intake"])}
+                    for _, row in sex_rows.iterrows()
+                ],
+            })
+    
+    # Create table data
+    pivot = grouped.pivot(index="year", columns="sex", values="intake").fillna(0)
+    pivot.reset_index(inplace=True)
+    rows = pivot.values.tolist()
+    
+    total_male = float(grouped[grouped["sex"] == "M"]["intake"].sum()) if "M" in sexes else 0
+    total_female = float(grouped[grouped["sex"] == "F"]["intake"].sum()) if "F" in sexes else 0
+    
+    return {
+        "summary": f"Gender comparison: Male={total_male:.0f}, Female={total_female:.0f}",
+        "visualization": {
+            "chartType": "line",
+            "x": "year",
+            "y": "intake",
+            "series": series,
+        },
+        "table": format_table(pivot.columns.tolist(), rows),
+    }
+
+
 def summarize_projection(df: pd.DataFrame) -> Dict[str, Any]:
     grouped = df.groupby("year", as_index=False)["intake"].sum().sort_values("year")
     if len(grouped) < 3:
@@ -325,6 +372,8 @@ def run_analysis(job_id: str, analysis_type: str, params: Dict[str, Any]) -> Non
             if isinstance(institutions, str):
                 institutions = [item.strip() for item in institutions.split(",") if item.strip()]
             result = summarize_comparative(filtered, institutions)
+        elif normalized == "gender_comparative":
+            result = summarize_gender_comparative(filtered)
         elif normalized == "projection":
             result = summarize_projection(filtered)
         else:
@@ -439,6 +488,12 @@ async def list_analyses(datasetId: str) -> List[Dict[str, Any]]:
             "name": "Comparative analysis",
             "paramsSchema": {"institutions": "string[]", "sex": "string"},
             "output": "Compare two institutions across years.",
+        },
+        {
+            "analysisType": "gender_comparative",
+            "name": "Gender comparison",
+            "paramsSchema": {"institutions": "string[]", "yearFrom": "number", "yearTo": "number"},
+            "output": "Compare Male vs Female intake trends across selected institutions.",
         },
         {
             "analysisType": "projection",
