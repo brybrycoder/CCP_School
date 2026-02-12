@@ -217,16 +217,15 @@ def summarize_time_series(df: pd.DataFrame) -> Dict[str, Any]:
 
 def summarize_comparative(df: pd.DataFrame, institutions: List[str]) -> Dict[str, Any]:
     if len(institutions) < 1:
-        institutions = df["institution"].dropna().unique().tolist()[:2]
-    
-    # Use all provided institutions, not just 2
+        institutions = df["institution"].dropna().unique().tolist()
+
     subset = df[df["institution"].isin(institutions)]
     grouped = subset.groupby(["year", "institution"], as_index=False)["intake"].sum()
 
     series: List[Dict[str, Any]] = []
     for inst in institutions:
         inst_rows = grouped[grouped["institution"] == inst]
-        if len(inst_rows) > 0:  # Only add series if institution has data
+        if not inst_rows.empty:
             series.append(
                 {
                     "name": inst,
