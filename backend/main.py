@@ -16,20 +16,23 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="DAaaS API", version="1.0")
 
+# CORS configuration - supports both development and production
+cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://daas-alb-905807185.ap-southeast-1.elb.amazonaws.com"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.join(BASE_DIR, "data", "IntakebyInstitutions_processed.csv")
+# Data file is in parent directory's data folder
+DATASET_PATH = os.path.join(os.path.dirname(BASE_DIR), "data", "IntakebyInstitutions_processed.csv")
 DATASET_ID = "intake_by_institutions"
 
 _jobs: Dict[str, Dict[str, Any]] = {}
