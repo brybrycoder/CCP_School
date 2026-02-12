@@ -31,8 +31,16 @@ app.add_middleware(
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Data file is in parent directory's data folder
-DATASET_PATH = os.path.join(os.path.dirname(BASE_DIR), "data", "IntakebyInstitutions_processed.csv")
+
+# Try Docker path first (backend/data/), then parent directory path (for local dev)
+DATASET_PATH_DOCKER = os.path.join(BASE_DIR, "data", "IntakebyInstitutions_processed.csv")
+DATASET_PATH_LOCAL = os.path.join(os.path.dirname(BASE_DIR), "data", "IntakebyInstitutions_processed.csv")
+
+# Use Docker path if it exists, otherwise use local path
+if os.path.exists(DATASET_PATH_DOCKER):
+    DATASET_PATH = DATASET_PATH_DOCKER
+else:
+    DATASET_PATH = DATASET_PATH_LOCAL
 DATASET_ID = "intake_by_institutions"
 
 _jobs: Dict[str, Dict[str, Any]] = {}
