@@ -17,10 +17,14 @@ from pydantic import BaseModel, Field
 app = FastAPI(title="DAaaS API", version="1.0")
 
 # CORS configuration - supports both development and production
-cors_origins = os.getenv(
+cors_origins_raw = os.getenv(
     "CORS_ORIGINS",
-    "https://daas-frontend-static.s3.ap-southeast-1.amazonaws.com,http://localhost:5173"
-).split(",")
+    "https://daas-frontend-static.s3.ap-southeast-1.amazonaws.com,"
+    "http://daas-frontend-static.s3-website-ap-southeast-1.amazonaws.com,"
+    "https://dja46325mkgaw.cloudfront.net,"
+    "http://localhost:5173"
+)
+cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
