@@ -16,20 +16,31 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="DAaaS API", version="1.0")
 
+# CORS configuration - supports both development and production
+cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://daas-alb-905807185.ap-southeast-1.elb.amazonaws.com"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.join(BASE_DIR, "data", "IntakebyInstitutions_processed.csv")
+
+# Try Docker path first (backend/data/), then parent directory path (for local dev)
+DATASET_PATH_DOCKER = os.path.join(BASE_DIR, "data", "IntakebyInstitutions_processed.csv")
+DATASET_PATH_LOCAL = os.path.join(os.path.dirname(BASE_DIR), "data", "IntakebyInstitutions_processed.csv")
+
+# Use Docker path if it exists, otherwise use local path
+if os.path.exists(DATASET_PATH_DOCKER):
+    DATASET_PATH = DATASET_PATH_DOCKER
+else:
+    DATASET_PATH = DATASET_PATH_LOCAL
 DATASET_ID = "intake_by_institutions"
 
 _jobs: Dict[str, Dict[str, Any]] = {}
@@ -217,16 +228,15 @@ def summarize_time_series(df: pd.DataFrame) -> Dict[str, Any]:
 
 def summarize_comparative(df: pd.DataFrame, institutions: List[str]) -> Dict[str, Any]:
     if len(institutions) < 1:
-        institutions = df["institution"].dropna().unique().tolist()[:2]
-    
-    # Use all provided institutions, not just 2
+        institutions = df["institution"].dropna().unique().tolist()
+
     subset = df[df["institution"].isin(institutions)]
     grouped = subset.groupby(["year", "institution"], as_index=False)["intake"].sum()
 
     series: List[Dict[str, Any]] = []
     for inst in institutions:
         inst_rows = grouped[grouped["institution"] == inst]
-        if len(inst_rows) > 0:  # Only add series if institution has data
+        if not inst_rows.empty:
             series.append(
                 {
                     "name": inst,

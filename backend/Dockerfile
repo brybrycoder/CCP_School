@@ -18,8 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create data directory if it doesn't exist
-RUN mkdir -p data
+# Verify data file exists (will be copied from GitHub Actions)
+RUN ls -la data/ || echo "Warning: data directory not found"
 
 # Expose port 8000
 EXPOSE 8000
