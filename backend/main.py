@@ -19,7 +19,7 @@ app = FastAPI(title="DAaaS API", version="1.0")
 # CORS configuration - supports both development and production
 cors_origins = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://daas-alb-905807185.ap-southeast-1.elb.amazonaws.com"
+    "https://daas-frontend-static.s3.ap-southeast-1.amazonaws.com,http://localhost:5173"
 ).split(",")
 
 app.add_middleware(
