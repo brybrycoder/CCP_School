@@ -67,16 +67,54 @@ function holtForecast(
   return forecasts;
 }
 
-// Analysis mode configurations
-const ANALYSIS_MODES: { mode: AnalysisMode; label: string; description: string; icon: React.ReactNode }[] = [
-  { mode: 'trend', label: 'Trend Over Time', description: 'Track intake trends by institution', icon: <TrendingUp className="w-5 h-5" /> },
-  { mode: 'comparison', label: 'Institution Comparison', description: 'Compare total intake across institutions', icon: <BarChartIcon className="w-5 h-5" /> },
-  { mode: 'growth', label: 'Growth Analysis', description: 'Year-over-year growth rates', icon: <ArrowUpRight className="w-5 h-5" /> },
-  { mode: 'gender', label: 'Gender Analytics', description: 'Compare Male vs Female intake trends', icon: <Users className="w-5 h-5" /> },
-  { mode: 'gender_ratio', label: 'Gender Ratio', description: '% Female intake per institution over time', icon: <Percent className="w-5 h-5" /> },
-  { mode: 'ranking', label: 'Rankings', description: 'How institution rankings change each year', icon: <Trophy className="w-5 h-5" /> },
-  { mode: 'distribution', label: 'Distribution', description: 'Intake spread & variability per institution', icon: <Activity className="w-5 h-5" /> },
+// Analysis mode configurations grouped by analytics category
+type AnalysisModeConfig = { mode: AnalysisMode; label: string; description: string; icon: React.ReactNode };
+
+const ANALYSIS_CATEGORIES: {
+  category: string;
+  description: string;
+  icon: React.ReactNode;
+  modes: AnalysisModeConfig[];
+}[] = [
+  {
+    category: 'Descriptive Statistics',
+    description: 'Averages, distributions, and summary metrics',
+    icon: <Activity className="w-4 h-4" />,
+    modes: [
+      { mode: 'distribution', label: 'Distribution', description: 'Intake spread & variability per institution', icon: <Activity className="w-5 h-5" /> },
+      { mode: 'gender_ratio', label: 'Gender Ratio', description: '% Female vs Male intake over time', icon: <Percent className="w-5 h-5" /> },
+    ],
+  },
+  {
+    category: 'Group-by Analysis',
+    description: 'Analysis by institution or sector',
+    icon: <BarChartIcon className="w-4 h-4" />,
+    modes: [
+      { mode: 'comparison', label: 'Institution Comparison', description: 'Compare total intake across institutions', icon: <BarChartIcon className="w-5 h-5" /> },
+      { mode: 'ranking', label: 'Rankings', description: 'How institution rankings change each year', icon: <Trophy className="w-5 h-5" /> },
+    ],
+  },
+  {
+    category: 'Time-series Analysis',
+    description: 'Trends and patterns over time',
+    icon: <TrendingUp className="w-4 h-4" />,
+    modes: [
+      { mode: 'trend', label: 'Trend Over Time', description: 'Track intake trends by institution', icon: <TrendingUp className="w-5 h-5" /> },
+      { mode: 'gender', label: 'Gender Analytics', description: 'Compare Male vs Female intake trends', icon: <Users className="w-5 h-5" /> },
+    ],
+  },
+  {
+    category: 'Comparative Analysis',
+    description: 'Cross-year comparisons and growth',
+    icon: <ArrowUpRight className="w-4 h-4" />,
+    modes: [
+      { mode: 'growth', label: 'Growth Analysis', description: 'Year-over-year growth rates', icon: <ArrowUpRight className="w-5 h-5" /> },
+    ],
+  },
 ];
+
+// Flat list derived from categories (used for chart title lookups, etc.)
+const ANALYSIS_MODES: AnalysisModeConfig[] = ANALYSIS_CATEGORIES.flatMap(c => c.modes);
 
 // ============================================================================
 // SUB-COMPONENTS
@@ -992,6 +1030,8 @@ export const IntakeAnalytics: React.FC = () => {
               xAxisLabel="Year"
               yAxisLabel="Student Intake"
               height={400}
+              areaFill
+              showBrush
               formatTooltip={(v) => formatNumber(v)}
             />
           </div>
@@ -1040,6 +1080,7 @@ export const IntakeAnalytics: React.FC = () => {
                 yAxisLabel="Total Intake"
                 height={400}
                 useColorPerBar
+                showLabels
                 formatTooltip={(v) => formatNumber(v)}
               />
             ) : (
@@ -1051,6 +1092,7 @@ export const IntakeAnalytics: React.FC = () => {
                 yAxisLabel="Total Intake"
                 height={400}
                 useColorPerBar
+                showLabels
                 formatTooltip={(v) => formatNumber(v)}
                 layout={comparisonChartType === 'horizontal' ? 'vertical' : 'horizontal'}
               />
@@ -1083,6 +1125,8 @@ export const IntakeAnalytics: React.FC = () => {
               xAxisLabel="Year"
               yAxisLabel="Growth Rate (%)"
               height={400}
+              showBrush
+              referenceLines={[{ y: 0, label: 'No Growth', color: '#94a3b8' }]}
               formatTooltip={(v) => v != null ? `${v.toFixed(1)}%` : 'N/A'}
             />
           </div>
@@ -1113,6 +1157,8 @@ export const IntakeAnalytics: React.FC = () => {
               xAxisLabel="Year"
               yAxisLabel="Student Intake"
               height={400}
+              areaFill
+              showBrush
               formatTooltip={(v) => formatNumber(v)}
             />
           </div>
@@ -1151,6 +1197,8 @@ export const IntakeAnalytics: React.FC = () => {
               xAxisLabel="Year"
               yAxisLabel="Percentage (%)"
               height={400}
+              areaFill
+              referenceLines={[{ y: 50, label: '50% Parity', color: '#94a3b8', strokeDasharray: '6 3' }]}
               formatTooltip={(v) => v != null ? `${v.toFixed(1)}%` : 'N/A'}
             />
           </div>
@@ -1202,13 +1250,17 @@ export const IntakeAnalytics: React.FC = () => {
               xAxisLabel="Institution"
               yAxisLabel="Intake"
               height={400}
+              showLabels
               formatTooltip={(v) => formatNumber(v)}
             />
             {/* Range & variability sub-chart */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {distributionChartData.map((d: any) => (
-                <div key={d.institutionKey} className="border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-2">{d.institution}</h4>
+                <div key={d.institutionKey} className="border border-gray-200 rounded-xl p-4 hover:shadow-md hover:border-gray-300 transition-all duration-200 bg-gradient-to-br from-white to-gray-50/50">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    {d.institution}
+                  </h4>
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-500">Range</span>
@@ -1227,27 +1279,37 @@ export const IntakeAnalytics: React.FC = () => {
                       <span className="font-medium">{d.count}</span>
                     </div>
                     {/* Visual range bar */}
-                    <div className="mt-2 pt-2 border-t border-gray-100">
-                      <div className="relative h-4 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="mt-3 pt-3 border-t border-gray-100">
+                      <div className="relative h-5 bg-gray-100 rounded-full overflow-hidden">
                         <div
-                          className="absolute h-full bg-blue-200 rounded-full"
+                          className="absolute h-full bg-blue-100 rounded-full transition-all duration-500"
                           style={{
                             left: `${((d.q1 - d.min) / (d.max - d.min)) * 100}%`,
                             width: `${((d.q3 - d.q1) / (d.max - d.min)) * 100}%`,
                           }}
                         />
                         <div
-                          className="absolute h-full w-0.5 bg-blue-600"
+                          className="absolute h-full w-0.5 bg-blue-600 z-10"
                           style={{ left: `${((d.median - d.min) / (d.max - d.min)) * 100}%` }}
+                          title={`Median: ${formatNumber(d.median)}`}
                         />
                         <div
-                          className="absolute h-full w-0.5 bg-green-600"
+                          className="absolute h-full w-0.5 bg-green-600 z-10"
                           style={{ left: `${((d.mean - d.min) / (d.max - d.min)) * 100}%` }}
+                          title={`Mean: ${formatNumber(d.mean)}`}
                         />
                       </div>
-                      <div className="flex justify-between text-xs text-gray-400 mt-1">
-                        <span>{formatNumber(d.min)}</span>
-                        <span>{formatNumber(d.max)}</span>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className="text-xs text-gray-400">{formatNumber(d.min)}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="flex items-center gap-1 text-xs text-blue-600">
+                            <span className="w-2 h-0.5 bg-blue-600 inline-block" /> Median
+                          </span>
+                          <span className="flex items-center gap-1 text-xs text-green-600">
+                            <span className="w-2 h-0.5 bg-green-600 inline-block" /> Mean
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400">{formatNumber(d.max)}</span>
                       </div>
                     </div>
                   </div>
@@ -1327,14 +1389,23 @@ export const IntakeAnalytics: React.FC = () => {
         break;
     }
 
-    return cards.map((card, index) => (
-      <Card key={index} variant="bordered" padding="sm">
-        <div className="text-center">
-          <p className="text-sm text-gray-500">{card.label}</p>
-          <p className="text-2xl font-bold text-primary-600">{card.value}</p>
-        </div>
-      </Card>
-    ));
+    return cards.map((card, index) => {
+      const ACCENT_COLORS = [
+        'from-blue-500 to-blue-400',
+        'from-emerald-500 to-emerald-400',
+        'from-amber-500 to-amber-400',
+        'from-violet-500 to-violet-400',
+      ];
+      return (
+        <Card key={index} variant="bordered" padding="sm" className="relative overflow-hidden group hover:shadow-md transition-all duration-200">
+          <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${ACCENT_COLORS[index % ACCENT_COLORS.length]}`} />
+          <div className="text-center pt-1">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{card.label}</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{card.value}</p>
+          </div>
+        </Card>
+      );
+    });
   };
 
   // ============================================================================
@@ -1414,7 +1485,7 @@ export const IntakeAnalytics: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Control Panel */}
         <div className="lg:col-span-1 space-y-4">
-          {/* Analysis Mode */}
+          {/* Analysis Mode — grouped by analytics category */}
           <Card variant="bordered">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -1423,31 +1494,43 @@ export const IntakeAnalytics: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col gap-2">
-                {ANALYSIS_MODES.map((mode) => (
-                  <label 
-                    key={mode.mode}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      analysisMode === mode.mode 
-                        ? 'border-primary-500 bg-primary-50' 
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="analysisMode"
-                      checked={analysisMode === mode.mode}
-                      onChange={() => setAnalysisMode(mode.mode)}
-                      className="w-4 h-4 text-primary-600"
-                    />
-                    <div className={`${analysisMode === mode.mode ? 'text-primary-600' : 'text-gray-500'}`}>
-                      {mode.icon}
+              <div className="space-y-5">
+                {ANALYSIS_CATEGORIES.map((cat) => (
+                  <div key={cat.category}>
+                    {/* Category header */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-gray-400">{cat.icon}</span>
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{cat.category}</h3>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <span className="font-medium text-sm block">{mode.label}</span>
-                      <span className="text-xs text-gray-500 truncate block">{mode.description}</span>
+                    {/* Modes within category */}
+                    <div className="flex flex-col gap-1.5 ml-1 border-l-2 border-gray-100 pl-3">
+                      {cat.modes.map((mode) => (
+                        <label 
+                          key={mode.mode}
+                          className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                            analysisMode === mode.mode 
+                              ? 'border-primary-500 bg-primary-50' 
+                              : 'border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="analysisMode"
+                            checked={analysisMode === mode.mode}
+                            onChange={() => setAnalysisMode(mode.mode)}
+                            className="w-4 h-4 text-primary-600"
+                          />
+                          <div className={`${analysisMode === mode.mode ? 'text-primary-600' : 'text-gray-500'}`}>
+                            {mode.icon}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="font-medium text-sm block">{mode.label}</span>
+                            <span className="text-xs text-gray-500 truncate block">{mode.description}</span>
+                          </div>
+                        </label>
+                      ))}
                     </div>
-                  </label>
+                  </div>
                 ))}
               </div>
             </CardContent>
@@ -1492,16 +1575,19 @@ export const IntakeAnalytics: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Forecast Toggle */}
+          {/* Statistical Projections — Forecast / Trend Extrapolation */}
           {needsForecastOption && (
             <Card variant="bordered">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-amber-500" />
-                  Predictive Analytics
+                  Statistical Projections
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                <p className="text-xs text-gray-500 mb-3">
+                  Trend extrapolation using Holt's Double Exponential Smoothing
+                </p>
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1510,9 +1596,9 @@ export const IntakeAnalytics: React.FC = () => {
                     className="w-4 h-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
                   />
                   <div>
-                    <span className="font-medium text-gray-900 block">Show Forecast</span>
+                    <span className="font-medium text-gray-900 block">Enable {FORECAST_YEARS}-Year Forecast</span>
                     <span className="text-xs text-gray-500">
-                      {FORECAST_YEARS}-year projection from API
+                      Projects future values as dashed lines on chart
                     </span>
                   </div>
                 </label>

@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
   TooltipProps,
   Cell,
+  LabelList,
 } from 'recharts';
 
 // Color palette for bars
@@ -52,10 +53,19 @@ interface BarChartProps {
   layout?: 'horizontal' | 'vertical';
   barSize?: number;
   useColorPerBar?: boolean;
+  showLabels?: boolean;
   formatTooltip?: (value: number) => string;
   formatXAxis?: (value: any) => string;
   formatYAxis?: (value: number) => string;
 }
+
+/** Abbreviate large numbers for bar labels */
+const abbreviateNumber = (v: number): string => {
+  if (v == null || isNaN(v)) return '';
+  if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}K`;
+  return String(Math.round(v));
+};
 
 export const BarChart: React.FC<BarChartProps> = ({
   data,
@@ -69,6 +79,7 @@ export const BarChart: React.FC<BarChartProps> = ({
   layout = 'horizontal',
   barSize,
   useColorPerBar = false,
+  showLabels = false,
   formatTooltip,
   formatXAxis,
   formatYAxis,
@@ -81,22 +92,23 @@ export const BarChart: React.FC<BarChartProps> = ({
     if (!active || !payload || payload.length === 0) return null;
 
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
-        <p className="font-medium text-gray-900 mb-2">
+      <div className="bg-white/95 backdrop-blur-sm border border-gray-200/80 rounded-xl shadow-xl p-3 min-w-[180px]">
+        <p className="font-semibold text-gray-900 mb-2 pb-2 border-b border-gray-100 text-sm">
           {formatXAxis ? formatXAxis(label) : label}
         </p>
         {payload.map((entry, index) => (
           <div
             key={index}
-            className="flex items-center gap-2 text-sm"
-            style={{ color: entry.color }}
+            className="flex items-center justify-between gap-3 text-sm py-0.5"
           >
-            <span
-              className="w-3 h-3 rounded"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span className="text-gray-600">{entry.name}:</span>
-            <span className="font-medium">
+            <div className="flex items-center gap-2">
+              <span
+                className="w-2.5 h-2.5 rounded ring-2 ring-white shadow-sm"
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="text-gray-600 text-xs">{entry.name}</span>
+            </div>
+            <span className="font-semibold text-gray-900 tabular-nums text-xs">
               {formatTooltip
                 ? formatTooltip(entry.value as number)
                 : entry.value?.toLocaleString() ?? 'N/A'}
@@ -114,10 +126,33 @@ export const BarChart: React.FC<BarChartProps> = ({
       <RechartsBarChart
         data={data}
         layout={layout}
-        margin={{ top: 20, right: 30, left: isVertical ? 100 : 20, bottom: 20 }}
+        margin={{ top: showLabels ? 30 : 20, right: 30, left: isVertical ? 100 : 20, bottom: 20 }}
       >
+        {/* Gradient definitions for bars */}
+        <defs>
+          {useColorPerBar
+            ? data.map((_, i) => {
+                const color = COLORS[i % COLORS.length];
+                return (
+                  <linearGradient key={`cell-grad-${i}`} id={`cell-grad-${i}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity={1} />
+                    <stop offset="100%" stopColor={color} stopOpacity={0.7} />
+                  </linearGradient>
+                );
+              })
+            : series.map((s, i) => {
+                const color = s.color || COLORS[i % COLORS.length];
+                return (
+                  <linearGradient key={`bar-grad-${i}`} id={`bar-grad-${i}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity={1} />
+                    <stop offset="100%" stopColor={color} stopOpacity={0.75} />
+                  </linearGradient>
+                );
+              })}
+        </defs>
+
         {showGrid && (
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
         )}
         {isVertical ? (
           <>
@@ -125,13 +160,15 @@ export const BarChart: React.FC<BarChartProps> = ({
               type="number"
               tick={{ fill: '#6b7280', fontSize: 12 }}
               tickFormatter={formatYAxis || ((v) => v.toLocaleString())}
+              axisLine={{ stroke: '#e5e7eb' }}
+              tickLine={{ stroke: '#e5e7eb' }}
               label={
                 yAxisLabel
                   ? {
                       value: yAxisLabel,
                       position: 'insideBottom',
                       offset: -10,
-                      style: { fill: '#374151', fontSize: 14 },
+                      style: { fill: '#374151', fontSize: 13, fontWeight: 500 },
                     }
                   : undefined
               }
@@ -142,13 +179,15 @@ export const BarChart: React.FC<BarChartProps> = ({
               tick={{ fill: '#6b7280', fontSize: 12 }}
               tickFormatter={formatXAxis}
               width={90}
+              axisLine={{ stroke: '#e5e7eb' }}
+              tickLine={false}
               label={
                 xAxisLabel
                   ? {
                       value: xAxisLabel,
                       angle: -90,
                       position: 'insideLeft',
-                      style: { fill: '#374151', fontSize: 14, textAnchor: 'middle' },
+                      style: { fill: '#374151', fontSize: 13, fontWeight: 500, textAnchor: 'middle' },
                     }
                   : undefined
               }
@@ -160,13 +199,15 @@ export const BarChart: React.FC<BarChartProps> = ({
               dataKey={xAxisKey}
               tick={{ fill: '#6b7280', fontSize: 12 }}
               tickFormatter={formatXAxis}
+              axisLine={{ stroke: '#e5e7eb' }}
+              tickLine={{ stroke: '#e5e7eb' }}
               label={
                 xAxisLabel
                   ? {
                       value: xAxisLabel,
                       position: 'insideBottom',
                       offset: -10,
-                      style: { fill: '#374151', fontSize: 14 },
+                      style: { fill: '#374151', fontSize: 13, fontWeight: 500 },
                     }
                   : undefined
               }
@@ -174,25 +215,30 @@ export const BarChart: React.FC<BarChartProps> = ({
             <YAxis
               tick={{ fill: '#6b7280', fontSize: 12 }}
               tickFormatter={formatYAxis || ((v) => v.toLocaleString())}
+              axisLine={{ stroke: '#e5e7eb' }}
+              tickLine={false}
               label={
                 yAxisLabel
                   ? {
                       value: yAxisLabel,
                       angle: -90,
                       position: 'insideLeft',
-                      style: { fill: '#374151', fontSize: 14, textAnchor: 'middle' },
+                      style: { fill: '#374151', fontSize: 13, fontWeight: 500, textAnchor: 'middle' },
                     }
                   : undefined
               }
             />
           </>
         )}
-        <Tooltip content={<CustomTooltip />} />
+        <Tooltip
+          content={<CustomTooltip />}
+          cursor={{ fill: 'rgba(59, 130, 246, 0.04)' }}
+        />
         {showLegend && series.length > 1 && (
           <Legend
             wrapperStyle={{ paddingTop: 20 }}
             formatter={(value) => (
-              <span className="text-gray-700 text-sm">{value}</span>
+              <span className="text-gray-600 text-xs font-medium">{value}</span>
             )}
           />
         )}
@@ -201,14 +247,26 @@ export const BarChart: React.FC<BarChartProps> = ({
             key={s.dataKey}
             dataKey={s.dataKey}
             name={s.name}
-            fill={useColorPerBar ? undefined : s.color || COLORS[index % COLORS.length]}
+            fill={useColorPerBar ? undefined : `url(#bar-grad-${index})`}
             stackId={s.stackId}
             barSize={barSize}
             radius={[4, 4, 0, 0]}
+            isAnimationActive={true}
+            animationDuration={600}
+            animationBegin={index * 100}
+            animationEasing="ease-out"
           >
+            {showLabels && (
+              <LabelList
+                dataKey={s.dataKey}
+                position={isVertical ? 'right' : 'top'}
+                formatter={abbreviateNumber}
+                style={{ fill: '#374151', fontSize: 11, fontWeight: 600 }}
+              />
+            )}
             {useColorPerBar &&
               data.map((_, i) => (
-                <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />
+                <Cell key={`cell-${i}`} fill={`url(#cell-grad-${i})`} />
               ))}
           </Bar>
         ))}
